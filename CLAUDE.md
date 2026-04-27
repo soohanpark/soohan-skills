@@ -10,13 +10,9 @@ pnpm validate   # check every plugin.json against the schema (no writes)
 pnpm test       # run Vitest suite (36 tests)
 ```
 
-`pnpm` is **not on the default PATH** in this environment. If `pnpm` errors with command-not-found, prefix with:
+If `pnpm` is missing from `PATH`, enable Corepack (`corepack enable`) or invoke pnpm via the Corepack shim. The repo pins `packageManager: pnpm@9.12.0` so any Corepack-aware Node ≥ 20 will resolve the right version automatically.
 
-```
-PATH="$HOME/.nvm/versions/node/v24.14.0/lib/node_modules/corepack/shims:$PATH"
-```
-
-For coverage runs the RTK proxy needs to be bypassed: `rtk proxy pnpm exec vitest run --coverage`.
+For coverage runs, if your shell intercepts `--coverage` (e.g. via a proxy wrapper), invoke vitest directly: `pnpm exec vitest run --coverage`.
 
 ## Architecture
 
@@ -91,11 +87,6 @@ The same applies to `commands/`: prefer `commands/run.md` (listed as `dry-skill:
 
 `marketplace update` only refreshes the catalog. To pick up changed SKILL/command files in an already-installed plugin, the uninstall → install → reload cycle is required.
 
-## Spec & plan
+## Working notes
 
-The original design and implementation plan live under `docs/superpowers/`:
-
-- `docs/superpowers/specs/2026-04-27-skill-marketplace-design.md`
-- `docs/superpowers/plans/2026-04-27-skill-marketplace.md`
-
-When extending the marketplace, prefer updating the spec first (the design rationale lives there) and adding a follow-up plan if the change is non-trivial.
+`docs/` is gitignored. Local-only design specs and implementation plans live there (when present). When extending the marketplace, prefer writing a short spec + plan locally before touching code (per the `superpowers:brainstorming` and `superpowers:writing-plans` workflow).
