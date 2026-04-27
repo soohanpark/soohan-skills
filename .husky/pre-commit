@@ -1,0 +1,1 @@
+pnpm sync && git add .claude-plugin/marketplace.json
