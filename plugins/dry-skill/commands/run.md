@@ -2,7 +2,7 @@
 description: Dry-run a skill with a flow diagram and simulated result, no real side effects
 ---
 
-The user invoked `/dry-skill $ARGUMENTS`.
+The user invoked `/run $ARGUMENTS` (full identifier: `/dry-skill:run`).
 
 Activate the `dry-skill:run` skill from this plugin (its SKILL.md describes the full contract) and follow it precisely.
 

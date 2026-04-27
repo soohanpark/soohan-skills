@@ -1,6 +1,6 @@
 ---
 name: run
-description: Use when the user wants to preview what a skill would do without producing real side effects. Activates explicitly via `/dry-skill <skill-name>` or implicitly when the user wraps a request in a dry-run intent (e.g. "dry run the brainstorming skill on this prompt"). Invoked via the Skill tool as `dry-skill:run`.
+description: Use when the user wants to preview what a skill would do without producing real side effects. Activates explicitly via `/run <skill-name>` (full id `/dry-skill:run`) or implicitly when the user wraps a request in a dry-run intent (e.g. "dry run the brainstorming skill on this prompt"). Invoked via the Skill tool as `dry-skill:run`.
 ---
 
 # dry-skill:run
@@ -11,10 +11,10 @@ Preview what a skill would do, without running it for real. Useful for understan
 
 | Mode | Form | Behavior |
 |---|---|---|
-| Explicit | `/dry-skill <skill-name>` | Dry-run the named skill |
-| Trigger | `/dry-skill <natural language>` | Match the prompt to available skills, then dry-run them |
+| Explicit | `/run <skill-name>` | Dry-run the named skill |
+| Trigger | `/run <natural language>` | Match the prompt to available skills, then dry-run them |
 
-In Explicit mode, `<skill-name>` is either a bare name (`brainstorming`) or a plugin-qualified name (`superpowers:brainstorming`).
+In Explicit mode, `<skill-name>` is either a bare name (`brainstorming`) or a plugin-qualified name (`superpowers:brainstorming`). The full slash-command identifier is `/dry-skill:run` if `/run` collides with another plugin.
 
 ## Dry-Run Contract
 

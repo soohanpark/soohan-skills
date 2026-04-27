@@ -11,15 +11,19 @@ Preview what a Claude Code skill would do without producing real side effects.
 
 ## Usage
 
+Slash commands: `/run` (or fully qualified `/dry-skill:run` when there's a name collision with another plugin).
+
 **Explicit — dry-run a named skill:**
 ```
-/dry-skill superpowers:brainstorming
+/run superpowers:brainstorming
 ```
 
 **Trigger — describe intent in natural language:**
 ```
-/dry-skill 브레인스토밍해줘
+/run 브레인스토밍해줘
 ```
+
+You can also activate the underlying skill directly via the Skill tool as `dry-skill:run`.
 
 ## What you get
 
