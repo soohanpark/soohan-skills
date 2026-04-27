@@ -4,10 +4,22 @@ Personal Claude Code plugin marketplace. Curated, self-authored plugins.
 
 ## Use this marketplace
 
+**Install (first time):**
 ```
 /plugin marketplace add soohanpark/soohan-skills
 /plugin install <plugin-name>@soohan-skills
+/reload-plugins
 ```
+
+**Update (when a plugin changes upstream):**
+```
+/plugin marketplace update soohan-skills
+/plugin uninstall <plugin-name>@soohan-skills
+/plugin install <plugin-name>@soohan-skills
+/reload-plugins
+```
+
+`marketplace update` only refreshes the catalog. To pick up new SKILL/command/agent files in an already-installed plugin, you need the uninstall → install → reload cycle.
 
 Browse available plugins in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) or under [`plugins/`](plugins/).
 

@@ -4,9 +4,19 @@ Preview what a Claude Code skill would do without producing real side effects.
 
 ## Install
 
+**First time:**
 ```
 /plugin marketplace add soohanpark/soohan-skills
 /plugin install dry-skill@soohan-skills
+/reload-plugins
+```
+
+**Update (after the plugin changes upstream):**
+```
+/plugin marketplace update soohan-skills
+/plugin uninstall dry-skill@soohan-skills
+/plugin install dry-skill@soohan-skills
+/reload-plugins
 ```
 
 ## Usage
