@@ -1,9 +1,9 @@
 ---
-name: dry-skill
-description: Use when the user wants to preview what a skill would do without producing real side effects. Activates explicitly via `/dry-skill <skill-name>` or implicitly when the user wraps a request in a dry-run intent (e.g. "dry run the brainstorming skill on this prompt").
+name: run
+description: Use when the user wants to preview what a skill would do without producing real side effects. Activates explicitly via `/dry-skill <skill-name>` or implicitly when the user wraps a request in a dry-run intent (e.g. "dry run the brainstorming skill on this prompt"). Invoked via the Skill tool as `dry-skill:run`.
 ---
 
-# Dry-Skill
+# dry-skill:run
 
 Preview what a skill would do, without running it for real. Useful for understanding skill behavior before committing to actual execution.
 
