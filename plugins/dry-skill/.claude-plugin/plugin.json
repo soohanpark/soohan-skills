@@ -1,6 +1,6 @@
 {
   "name": "dry-skill",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Dry-run any skill with a flow diagram and simulated result",
   "author": { "name": "soohanpark" },
   "category": "meta",

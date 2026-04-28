@@ -47,6 +47,30 @@ When invoked with a natural-language argument:
 4. If 0 skills match, report this and stop. If ≥ 1 match, state the selected skill(s) and the matching rationale, then proceed.
 5. If multiple skills would chain (e.g. brainstorming → writing-plans), simulate them in order. Combine their flows into a single diagram with a clear handoff marker.
 
+## Pre-Flight: Insufficient-Input Check
+
+Before any simulation, verify the invocation has enough input to produce a meaningful flow. If the user passed **only a bare skill name** (Explicit mode with no extra context) and the target skill's behavior depends on user-supplied input — a prompt, file path, target text, query, location, etc. — you MUST stop and ask, rather than fabricate a flow.
+
+How to decide:
+
+- Read the target skill's `description` and `SKILL.md`. Look for required inputs: "Use when the user asks for X about Y", "Search for ...", "Convert <input> to ...", parameters in examples.
+- If the skill is **purely procedural** (e.g. `verification-before-completion`, `writing-plans` operating on conversation context), bare-name invocation is fine — proceed.
+- If the skill needs **concrete user data** (e.g. `korean-spell-check` needs text, `real-estate-search` needs a region, `frontend-design` needs a UI brief), bare-name invocation is **not** enough.
+
+When stopping, emit exactly this block (no Flow, no Step-by-step):
+
+````
+## Dry-run: <skill name> — insufficient input
+
+This skill requires <what's missing> to produce a meaningful dry-run. Without it, any simulated flow would be fabricated.
+
+**How to invoke it:**
+- `/run <skill name> <example concrete input>`
+- or describe the intent in natural language: `/run <example natural-language request>`
+````
+
+Replace `<example concrete input>` and `<example natural-language request>` with **two realistic examples** drawn from the target skill's own description/examples.
+
 ## Output Format (fixed)
 
 Always emit exactly this structure. Omit the "Files / state" section if nothing would have changed.
@@ -57,12 +81,15 @@ Always emit exactly this structure. Omit the "Files / state" section if nothing 
 ### Flow
 
 ```
-<ASCII or mermaid diagram of the skill's steps>
+<ASCII box-and-arrow diagram — see "Flow diagram rules" below>
 ```
 
 ### Step-by-step
-1. [<skill>] <step description> — would call `<tool>(<args summary>)`
-2. ...
+
+| # | Step | Tool | Args / Effect |
+|---|------|------|---------------|
+| 1 | [<skill>] <short label> | `<tool>` | <args summary or "—"> |
+| 2 | ... | ... | ... |
 
 ### Simulated result
 <What the skill would have produced. Be explicit that this is simulated, not real output.>
@@ -70,6 +97,47 @@ Always emit exactly this structure. Omit the "Files / state" section if nothing 
 ### Files / state that would have changed
 - `<path>`: <preview of the intended change>
 ````
+
+### Flow diagram rules
+
+The Flow block MUST be a real ASCII diagram — boxes connected by arrows — not a paragraph or an inline arrow-separated list. Use one of these two layouts:
+
+**Vertical (preferred for ≤ 8 steps):**
+
+```
+┌──────────────────────────┐
+│ 0. introspect project    │
+└────────────┬─────────────┘
+             ▼
+┌──────────────────────────┐
+│ 1. load MCP tools        │
+└────────────┬─────────────┘
+             ▼
+┌──────────────────────────┐
+│ 2. normalize input       │
+└──────────────────────────┘
+```
+
+**Horizontal columns (for > 8 steps or chained skills):**
+
+```
+┌────────────┐    ┌────────────┐    ┌────────────┐
+│ 0. intro   │ ─▶ │ 1. load    │ ─▶ │ 2. norm    │
+└────────────┘    └────────────┘    └────────────┘
+                                          │
+       ┌──────────────────────────────────┘
+       ▼
+┌────────────┐    ┌────────────┐
+│ 3. fetch   │ ─▶ │ 4. emit    │
+└────────────┘    └────────────┘
+```
+
+Hard rules:
+
+- Every node is a labeled box with `┌─┐ │ │ └─┘` (or `+--+ | | +--+` if Unicode is unsafe).
+- Arrows are `─▶`, `▼`, `▲`, `◀` — not `->` or `→` glyphs in a sentence.
+- For chained skills, mark the handoff with a separator line containing the next skill's name, e.g. `══ handoff → writing-plans ══`.
+- Never replace the diagram with prose or a single-line `Step 0 → Step 1 → Step 2` chain. If you find yourself writing arrows inside a paragraph, stop and redraw as boxes.
 
 ## What Dry-Skill is NOT
 

@@ -13,4 +13,7 @@ Mode selection:
 Constraints:
 - Do **not** call any side-effecting tool during simulation.
 - Output must follow the fixed template defined in the `dry-skill:run` SKILL.md.
+- The Flow block must be a real ASCII box-and-arrow diagram (see SKILL.md "Flow diagram rules"). Never substitute prose or a single-line `Step 0 → Step 1 → ...` chain.
+- The Step-by-step block must be a Markdown table (`# | Step | Tool | Args / Effect`), not a numbered paragraph list.
+- Run the **Pre-Flight: Insufficient-Input Check** in SKILL.md before simulating. If the target skill needs user-supplied input and `$ARGUMENTS` is just a bare skill name, emit the "insufficient input" block and stop — do not fabricate a flow.
 - If `$ARGUMENTS` is empty, ask the user which skill or intent to dry-run.

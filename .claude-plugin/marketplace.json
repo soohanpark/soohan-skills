@@ -8,7 +8,7 @@
       "name": "dry-skill",
       "source": "./plugins/dry-skill",
       "description": "Dry-run any skill with a flow diagram and simulated result",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "meta",
       "tags": [
         "dry-run",
