@@ -5,6 +5,18 @@
   },
   "plugins": [
     {
+      "name": "blin-mr",
+      "source": "./plugins/blin-mr",
+      "description": "블인팀 MR 본문을 현재 브랜치 변경사항으로 작성해 클립보드에 복사",
+      "version": "0.1.0",
+      "category": "workflow",
+      "tags": [
+        "mr",
+        "gitlab",
+        "git-workflow"
+      ]
+    },
+    {
       "name": "dry-skill",
       "source": "./plugins/dry-skill",
       "description": "Dry-run any skill with a flow diagram and simulated result",
