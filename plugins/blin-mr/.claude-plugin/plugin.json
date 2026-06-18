@@ -1,6 +1,6 @@
 {
   "name": "blin-mr",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "블인팀 MR 본문을 현재 브랜치 변경사항으로 작성해 클립보드에 복사",
   "author": { "name": "soohanpark" },
   "category": "workflow",
