@@ -9,3 +9,6 @@ docs/
 
 # superpowers subagent-driven-development scratch
 .superpowers/
+
+evals/runs/
+evals/**/cases.draft.jsonl

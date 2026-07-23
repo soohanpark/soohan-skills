@@ -1,0 +1,32 @@
+import { existsSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { cmdRecord } from './commands/record.js'
+import { cmdReport } from './commands/report.js'
+import { evalsRoot } from './paths.js'
+
+/* v8 ignore start */
+const usage = (repoRoot: string) => {
+  console.log('사용법: pnpm eval <record|report> <인자>')
+  console.log('  record <plugin:skill | SKILL.md 경로>')
+  console.log('  report <runId>')
+  const runsDir = join(evalsRoot(repoRoot), 'runs')
+  if (existsSync(runsDir)) {
+    const runs = readdirSync(runsDir).slice(-5)
+    if (runs.length) console.log(`  최근 runId: ${runs.join(', ')}`)
+  }
+}
+
+const isMain = () => {
+  if (typeof process === 'undefined' || !process.argv[1]) return false
+  return fileURLToPath(import.meta.url) === process.argv[1]
+}
+
+if (isMain()) {
+  const repoRoot = process.cwd()
+  const [sub, arg] = process.argv.slice(2)
+  if (sub === 'record' && arg) await cmdRecord(arg, repoRoot)
+  else if (sub === 'report' && arg) cmdReport(arg, repoRoot)
+  else { usage(repoRoot); process.exit(1) }
+}
+/* v8 ignore stop */
