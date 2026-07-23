@@ -14,7 +14,23 @@ export interface BuildOptions {
   degradedBaseline?: boolean
 }
 
+export interface ExecOutcome {
+  stdout: string
+  exitCode: number | null
+  stderr: string
+}
+
 export type Exec = (args: string[]) => Promise<{ stdout: string; durationMs: number }>
+
+// 종료 코드만으로는 판정할 수 없다: 트리거 축은 --max-turns 1 로 일부러 자르므로
+// 정상 측정도 exit 1 로 끝난다. 인증 실패·API 오류는 result 이벤트를 남기므로
+// 파서가 분류한다. 파서가 볼 것이 아무것도 없을 때만 실패로 올린다.
+export const execFailureReason = (outcome: ExecOutcome): string | null => {
+  if (outcome.stdout.trim() !== '') return null
+  const code = outcome.exitCode === null ? 'signal' : `exit ${outcome.exitCode}`
+  const detail = outcome.stderr.trim() === '' ? '' : `: ${outcome.stderr.trim().split('\n').slice(-3).join(' ')}`
+  return `claude produced no output (${code})${detail}`
+}
 
 const STREAM_ARGS = ['--output-format', 'stream-json', '--verbose']
 
@@ -46,8 +62,18 @@ export const execClaude: Exec = (args) =>
     const started = Date.now()
     const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] })
     let stdout = ''
+    let stderr = ''
     child.stdout.on('data', d => { stdout += d })
+    child.stderr.on('data', d => { stderr += d })
     child.on('error', reject)
-    child.on('close', () => resolve({ stdout, durationMs: Date.now() - started }))
+    child.on('close', (exitCode) => {
+      const outcome: ExecOutcome = { stdout, exitCode, stderr }
+      const failure = execFailureReason(outcome)
+      if (failure) {
+        reject(new Error(failure))
+      } else {
+        resolve({ stdout, durationMs: Date.now() - started })
+      }
+    })
   })
 /* v8 ignore stop */
