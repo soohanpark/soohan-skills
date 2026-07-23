@@ -67,4 +67,39 @@ describe('parseClaudeStream', () => {
     expect(r.status).toBe('error')
     expect(r.terminalReason).toBe('no_result_event')
   })
+
+  it('does not flag a Read of a sibling directory sharing the prefix', () => {
+    const raw = '{"type":"system","subtype":"init","model":"test","skills":[]}\n' +
+                '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/plugins/demo/skills/write-v2/SKILL.md"}}]}}\n' +
+                '{"type":"result","terminal_reason":"success","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
+    const r = parseClaudeStream(raw, opts)
+    expect(r.skillReadFallback).toBe(false)
+  })
+
+  it('does not flag a Read of an unrelated path as fallback', () => {
+    const raw = '{"type":"system","subtype":"init","model":"test","skills":[]}\n' +
+                '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/other/path/file.txt"}}]}}\n' +
+                '{"type":"result","terminal_reason":"success","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
+    const r = parseClaudeStream(raw, opts)
+    expect(r.skillReadFallback).toBe(false)
+  })
+
+  it('flags a Read of a file inside the skill directory', () => {
+    const raw = '{"type":"system","subtype":"init","model":"test","skills":[]}\n' +
+                '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/plugins/demo/skills/write/SKILL.md"}}]}}\n' +
+                '{"type":"result","terminal_reason":"success","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
+    const r = parseClaudeStream(raw, opts)
+    expect(r.skillReadFallback).toBe(true)
+  })
+
+  it('ignores truncated JSON lines that start with { but are malformed', () => {
+    const raw = '{"type":"system","subtype":"init","model":"claude-opus-4-8[1m]","skills":["demo:write","other:thing"]}\n' +
+                '{"type":"assistant","message":{"content":[{"type":"text","text":"작성했습니다."}]}}\n' +
+                '{"type":"result", broken\n' +
+                '{"type":"result","terminal_reason":"success","result":"작성했습니다.","usage":{"input_tokens":800,"output_tokens":700},"total_cost_usd":0.1234}\n'
+    const r = parseClaudeStream(raw, opts)
+    expect(r.status).toBe('ok')
+    expect(r.terminalReason).toBe('success')
+    expect(r.finalText).toBe('작성했습니다.')
+  })
 })

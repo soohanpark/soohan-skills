@@ -60,9 +60,12 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
         if (block.name === 'Skill' && block.input?.skill === opts.skillId) {
           triggered = true
         }
-        if (block.name === 'Read' && typeof block.input?.file_path === 'string'
-            && block.input.file_path.startsWith(opts.skillDir)) {
-          skillReadFallback = true
+        if (block.name === 'Read' && typeof block.input?.file_path === 'string') {
+          const filePath = block.input.file_path
+          // ponytail: require path separator to avoid prefix collisions (e.g. 'write' vs 'write-v2')
+          if (filePath === opts.skillDir || filePath.startsWith(opts.skillDir + '/')) {
+            skillReadFallback = true
+          }
         }
       }
       continue
