@@ -6,3 +6,6 @@ coverage/
 docs/
 .memsearch/
 
+
+# superpowers subagent-driven-development scratch
+.superpowers/
