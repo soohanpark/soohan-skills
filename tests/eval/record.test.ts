@@ -124,4 +124,45 @@ describe('recordAll', () => {
     expect(index[0].parsed.terminalReason).toMatch(/spawn failed/)
     expect(res.errorRate).toBe(1)
   })
+
+  it('rebuilds a full index entry for a skipped item from its raw file on disk', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    mkdirSync(out, { recursive: true })
+    writeFileSync(join(out, 'with--a--r1.jsonl'), okStream)
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
+    expect(res.skipped).toBe(1)
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index).toHaveLength(1)
+    expect(index[0].caseId).toBe('a')
+    expect(index[0].parsed.status).toBe('ok')
+    expect(index[0].parsed.triggered).toBe(true)
+    expect(index[0].durationMs).toBe(0)
+  })
+
+  it('creates no raw file on a thrown exec, so a later call retries and can succeed', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const failing: Exec = async () => { throw new Error('spawn failed') }
+    await recordAll({ plan, skill, outDir: out, exec: failing })
+    expect(existsSync(join(out, 'with--a--r1.jsonl'))).toBe(false)
+
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
+    expect(res.skipped).toBe(0)
+    expect(res.written).toBe(1)
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index[0].parsed.status).toBe('ok')
+  })
+
+  it('records meta.repoSha when supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, repoSha: 'abc123' })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.repoSha).toBe('abc123')
+  })
+
+  it('defaults meta.repoSha to an empty string when not supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.repoSha).toBe('')
+  })
 })
