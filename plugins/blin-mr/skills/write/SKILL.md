@@ -1,6 +1,6 @@
 ---
 name: write
-description: Use when the user asks for 블인팀 MR content for the current branch (e.g. "블인팀 MR 내용 작성해줘", "MR 본문 정리해줘", "블인 MR 써줘"). Analyzes committed changes against the auto-detected base branch, fills the 블인팀 fixed MR template in Korean, generates an MR title, and copies the body to the clipboard. Invoked via the Skill tool as `blin-mr:write` or the `/blin-mr` command.
+description: Use when the user asks for 블인팀 MR content for the current branch (e.g. "블인팀 MR 내용 작성해줘", "MR 본문 정리해줘", "블인 MR 써줘"). Analyzes committed changes against the auto-detected base branch, fills the 블인팀 fixed MR template in Korean, generates an MR title, and copies the body to the clipboard.
 ---
 
 # blin-mr:write
@@ -10,8 +10,8 @@ description: Use when the user asks for 블인팀 MR content for the current bra
 
 ## Contract
 
-아래 단계를 순서대로 수행한다. pbcopy를 제외한 모든 명령은 read-only다 — 레포 상태를
-바꾸는 git 명령(add/commit/push/checkout 등)은 절대 실행하지 않는다.
+아래 단계를 순서대로 수행한다. 클립보드 복사를 제외한 모든 명령은 read-only다 — 레포
+상태를 바꾸는 git 명령(add/commit/push/checkout 등)은 절대 실행하지 않는다.
 
 ### 1. 사전 검증
 
@@ -26,7 +26,7 @@ description: Use when the user asks for 블인팀 MR content for the current bra
 3. `git rev-parse --verify --quiet origin/main`
 4. `git rev-parse --verify --quiet origin/master`
 
-- 전부 실패하면 사용자에게 base 브랜치를 묻는다 (AskUserQuestion).
+- 전부 실패하면 사용자에게 base 브랜치를 묻는다.
 - 현재 브랜치(`git branch --show-current`)가 base와 같은 브랜치를 가리키면 경고하고
   계속할지 확인받는다.
 - diff 범위는 `merge-base(base, HEAD)..HEAD`: 이후 모든 비교는
@@ -52,9 +52,9 @@ description: Use when the user asks for 블인팀 MR content for the current bra
 | 3. 코드/함수 주석 | 변경된 코드에 설명 주석 추가가 보이면 `[x]` |
 | 4. e2e 확인 | 사용자에게 질문 |
 
-2번과 4번은 AskUserQuestion **한 번**(multiSelect)으로 같이 묻는다:
-"이번 변경에서 직접 수행한 항목을 골라주세요" — 선택지: "수동 테스트 완료" /
-"e2e 테스트 완료". 선택된 항목만 `[x]`.
+2번과 4번은 **한 번**에 같이 묻는다 (복수 선택 질문 도구가 있으면 multiSelect로,
+없으면 평문으로 묻는다): "이번 변경에서 직접 수행한 항목을 골라주세요" — 선택지:
+"수동 테스트 완료" / "e2e 테스트 완료". 선택된 항목만 `[x]`.
 
 ### 5. 제목 + 본문 작성
 
@@ -91,7 +91,9 @@ description: Use when the user asks for 블인팀 MR content for the current bra
 ### 6. 출력 + 클립보드 복사
 
 1. 화면에 **제목 1줄 + 본문 전체**를 출력한다 (사용자 확인용).
-2. **본문만** pbcopy로 복사한다. 단일 quoted heredoc을 사용해 셸 해석을 막는다:
+2. **본문만** 클립보드 명령으로 복사한다. 단일 quoted heredoc을 사용해 셸 해석을
+   막는다. `CLIP`은 이 순서로 존재하는 첫 명령을 쓴다: `pbcopy`(macOS) →
+   `wl-copy`(Wayland) → `xclip -selection clipboard`(X11) → `clip.exe`(WSL).
 
 ```bash
 pbcopy <<'MR_BODY'
@@ -101,7 +103,7 @@ MR_BODY
 
 3. "MR 본문을 클립보드에 복사했습니다. 제목은 GitLab에 직접 입력해주세요."라고
    명시적으로 알린다.
-4. pbcopy가 실패하면(비-macOS 등) 본문이 이미 화면에 출력되어 있으니 수동 복사를
+4. 클립보드 명령이 없거나 실패하면 본문이 이미 화면에 출력되어 있으니 수동 복사를
    안내한다.
 
 ## What this skill is NOT

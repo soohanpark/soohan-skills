@@ -1,8 +1,13 @@
 # soohan-skills
 
-Personal Claude Code plugin marketplace. Curated, self-authored plugins.
+Personal skill marketplace. Curated, self-authored plugins, installable from **any** LLM CLI that reads the [Agent Skills](https://code.claude.com/docs/en/skills) `SKILL.md` standard.
 
-## Use this marketplace
+| Runtime | Install |
+|---|---|
+| Claude Code | `/plugin marketplace add soohanpark/soohan-skills` |
+| Codex · Gemini · Kimi CLI | `curl -fsSL https://raw.githubusercontent.com/soohanpark/soohan-skills/main/install.sh \| bash` |
+
+## Claude Code
 
 **Install (first time):**
 ```
@@ -22,6 +27,18 @@ Personal Claude Code plugin marketplace. Curated, self-authored plugins.
 `marketplace update` only refreshes the catalog. To pick up new SKILL/command/agent files in an already-installed plugin, you need the uninstall → install → reload cycle.
 
 Browse available plugins in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) or under [`plugins/`](plugins/).
+
+## Codex CLI · Gemini CLI · Kimi CLI · anything else
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/soohanpark/soohan-skills/main/install.sh | bash
+```
+
+Auto-detects `~/.codex` `~/.gemini` `~/.kimi` `~/.agents` and copies every skill into each one's `skills/` directory. Cloned the repo already? Just `./install.sh`. Other locations: `./install.sh --target <skills-dir>` (repeatable).
+
+Skills land under the plugin's name (`~/.codex/skills/blin-mr`) and fire off their `description` — there is nothing to configure. Re-run the same command to update; it is idempotent.
+
+Slash commands are Claude-only and are not installed. Ask for the skill by name or intent instead of typing `/blin-mr`.
 
 ## Add a new plugin (maintainer)
 
@@ -52,7 +69,9 @@ Browse available plugins in [`.claude-plugin/marketplace.json`](.claude-plugin/m
 ## Layout
 
 ```
-plugins/<name>/                          your plugin lives here
+plugins/<name>/                          your plugin lives here (single source of truth)
+install.sh                               installs skills into non-Claude CLIs
+AGENTS.md                                canonical repo instructions (CLAUDE.md/GEMINI.md just import it)
 .claude-plugin/marketplace.json          generated; do not hand-edit
 scripts/{schema,sync,validate}.ts        sync engine
 .husky/pre-commit                        regenerates marketplace.json on commit
@@ -63,4 +82,5 @@ scripts/{schema,sync,validate}.ts        sync engine
 
 See `plugins/<name>/README.md` for each plugin's docs.
 
+- [`blin-mr`](plugins/blin-mr/README.md) — write a 블인팀 MR body from the current branch
 - [`dry-skill`](plugins/dry-skill/README.md) — dry-run any skill with a flow diagram

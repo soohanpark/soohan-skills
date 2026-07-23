@@ -1,8 +1,18 @@
 # dry-skill
 
-Preview what a Claude Code skill would do without producing real side effects.
+Preview what a skill would do without producing real side effects.
 
 ## Install
+
+### Codex · Gemini · Kimi CLI
+
+```bash
+./install.sh            # from a clone; auto-detects ~/.codex ~/.gemini ~/.kimi ~/.agents
+```
+
+Re-run to update. Then just ask for a dry-run in natural language — there are no slash commands outside Claude Code.
+
+### Claude Code
 
 **First time:**
 ```
@@ -21,7 +31,7 @@ Preview what a Claude Code skill would do without producing real side effects.
 
 ## Usage
 
-Slash commands: `/run` (or fully qualified `/dry-skill:run` when there's a name collision with another plugin).
+Slash commands (Claude Code only): `/run`, or fully qualified `/dry-skill:run` when there's a name collision with another plugin. On other CLIs use the same two forms in plain text ("dry run superpowers:brainstorming").
 
 **Explicit — dry-run a named skill:**
 ```
@@ -33,7 +43,7 @@ Slash commands: `/run` (or fully qualified `/dry-skill:run` when there's a name 
 /run 브레인스토밍해줘
 ```
 
-You can also activate the underlying skill directly via the Skill tool as `dry-skill:run`.
+In Claude Code you can also activate the underlying skill directly as `dry-skill:run`.
 
 ## What you get
 
@@ -45,7 +55,7 @@ A fixed-format report with:
 
 ## What dry-skill will not do
 
-- Will not call `Write`, `Edit`, mutating `Bash`, the `Skill` tool, or MCP write/mutation tools during simulation
+- Will not call file-writing tools, mutating shell commands, real skill activation, or MCP write/mutation tools during simulation
 - Will not partially execute a skill — if it can't simulate without side effects, it stops and reports why
 - Will not invent skills that aren't in the current session's available-skills list
 

@@ -1,12 +1,12 @@
 # blin-mr
 
 현재 브랜치의 커밋된 변경사항을 분석해 블인팀 고정 MR 포맷(한국어)으로 제목 + 본문을
-작성하고, 본문을 클립보드(`pbcopy`)에 복사한다.
+작성하고, 본문을 클립보드에 복사한다.
 
 ## 사용법
 
-- 자연어: "블인팀 MR 내용 작성해줘"
-- 명시 호출: `/blin-mr` (충돌 시 `/blin-mr:blin-mr`)
+- 자연어: "블인팀 MR 내용 작성해줘" (모든 CLI 공통)
+- 명시 호출: `/blin-mr` (충돌 시 `/blin-mr:blin-mr`) — Claude Code 전용
 
 ## 동작
 
@@ -17,9 +17,18 @@
 
 ## 설치
 
+Claude Code:
+
 ```
 /plugin install blin-mr@soohan-skills
 /reload-plugins
 ```
 
-macOS 전용 (`pbcopy`). 다른 OS에서는 본문을 화면에서 수동 복사.
+Codex · Gemini · Kimi CLI (레포 루트에서):
+
+```bash
+./install.sh
+```
+
+클립보드는 `pbcopy`(macOS) → `wl-copy` → `xclip` → `clip.exe` 순으로 있는 것을 쓰고,
+전부 없으면 본문이 화면에 출력되니 수동 복사하면 된다.
