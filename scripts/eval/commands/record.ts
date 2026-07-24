@@ -56,10 +56,36 @@ export const RUNTIMES: Record<RuntimeName, RuntimeAdapter> = {
 }
 
 // record 서브커맨드의 나머지 argv 에서 두 플래그를 골라낸다 (순수 — 테스트 대상).
-export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: string } => ({
-  runtime: flags.find(f => f.startsWith('--runtime=') || f === 'claude' || f === 'codex'),
-  resume: flags.find(f => f.startsWith('--resume='))?.slice('--resume='.length)
-})
+// 모르는 플래그는 던진다 — --reusme 같은 오타가 조용히 새 런을 처음부터 돌리면 안 된다 (재검증 리뷰 3).
+export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: string } => {
+  const isKnown = (f: string) =>
+    f.startsWith('--runtime=') || f === 'claude' || f === 'codex' || f.startsWith('--resume=')
+  const unknown = flags.find(f => !isKnown(f))
+  if (unknown) {
+    throw new Error(`알 수 없는 플래그 "${unknown}" — --runtime=claude|codex, --resume=<runId> 만 받습니다.`)
+  }
+  return {
+    runtime: flags.find(f => f.startsWith('--runtime=') || f === 'claude' || f === 'codex'),
+    resume: flags.find(f => f.startsWith('--resume='))?.slice('--resume='.length)
+  }
+}
+
+// --resume 대상의 meta 와 이번 호출 인자가 맞물리는지 검증하고 재개 런타임을 정한다 (순수 — 테스트 대상).
+// 다른 스킬의 런을 이어받으면 기존 원본이 엉뚱한 skillId/파서로 재해석되고 meta 가 덮인다 (재검증 리뷰 3).
+export const checkResume = (
+  meta: { skillId?: string; runtime?: RuntimeName },
+  skillId: string,
+  runtimeFlag?: string
+): RuntimeName => {
+  if (meta.skillId && meta.skillId !== skillId) {
+    throw new Error(`--resume 대상은 ${meta.skillId} 의 실행입니다 — ${skillId} 로 이어갈 수 없습니다.`)
+  }
+  const resumed = meta.runtime ?? 'claude'
+  if (runtimeFlag && parseRuntimeFlag(runtimeFlag, resumed) !== resumed) {
+    throw new Error(`--runtime 이 재개 대상의 런타임(${resumed})과 다릅니다 — 재개는 원 실행의 런타임을 따릅니다.`)
+  }
+  return resumed
+}
 
 // "--runtime=codex" 또는 맨 이름 "codex" → 'codex'. 미지정이면 감지된 런타임.
 // 명시했는데 못 알아듣는 값이면 던진다 — 오타 난 채 수 분짜리 레코딩이 도는 걸 막는다 (리뷰 R12).
@@ -112,8 +138,12 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
       console.error(`✗ runs/${runId} 에 meta.json 이 없습니다 — --resume 은 기존 runId 만 받습니다.`)
       process.exit(1)
     }
-    // 재개는 원 실행의 런타임을 따른다 — 다른 파서로 기존 원본을 재해석하면 결과가 오염된다.
-    runtimeName = (JSON.parse(readFileSync(metaFile, 'utf8')) as { runtime?: RuntimeName }).runtime ?? 'claude'
+    try {
+      runtimeName = checkResume(JSON.parse(readFileSync(metaFile, 'utf8')), skill.id, runtimeFlag)
+    } catch (e) {
+      console.error(`✗ ${(e as Error).message}`)
+      process.exit(1)
+    }
   }
 
   const runtime = RUNTIMES[runtimeName]

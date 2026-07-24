@@ -333,6 +333,16 @@ describe('retry', () => {
     expect(res.errorRate).toBe(1)
   })
 
+  it('does not classify a folded stderr that mentions a timeout as a wall-clock timeout', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const exec: Exec = async () => {
+      throw new Error('claude produced no output (exit 1): Request timed out after 30000ms')
+    }
+    await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index[0].parsed.status).toBe('error')
+  })
+
   it('calls the injected sleep exactly once on a single retry', async () => {
     const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
     let n = 0

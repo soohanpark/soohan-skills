@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildRecordPlan, parseRecordFlags, parseRuntimeFlag, RUNTIMES } from '../../scripts/eval/commands/record'
+import { buildRecordPlan, checkResume, parseRecordFlags, parseRuntimeFlag, RUNTIMES } from '../../scripts/eval/commands/record'
 import type { EvalCase } from '../../scripts/eval/cases'
 
 describe('parseRecordFlags', () => {
@@ -15,6 +15,29 @@ describe('parseRecordFlags', () => {
 
   it('returns neither when no flags are given', () => {
     expect(parseRecordFlags([])).toEqual({ runtime: undefined, resume: undefined })
+  })
+
+  it('throws on an unrecognized flag — a typo like --reusme must not mint a fresh full run', () => {
+    expect(() => parseRecordFlags(['--reusme=r1'])).toThrow(/reusme/)
+  })
+})
+
+describe('checkResume', () => {
+  it('returns the resumed runtime, defaulting claude for runs recorded before the field existed', () => {
+    expect(checkResume({ skillId: 'a:b', runtime: 'codex' }, 'a:b', undefined)).toBe('codex')
+    expect(checkResume({ skillId: 'a:b' }, 'a:b', undefined)).toBe('claude')
+  })
+
+  it('throws when the resume target belongs to a different skill', () => {
+    expect(() => checkResume({ skillId: 'a:b', runtime: 'claude' }, 'c:d', undefined)).toThrow(/a:b/)
+  })
+
+  it('throws when an explicit --runtime contradicts the resumed runtime', () => {
+    expect(() => checkResume({ skillId: 'a:b', runtime: 'codex' }, 'a:b', '--runtime=claude')).toThrow(/codex/)
+  })
+
+  it('accepts an explicit --runtime that matches the resumed runtime', () => {
+    expect(checkResume({ skillId: 'a:b', runtime: 'codex' }, 'a:b', '--runtime=codex')).toBe('codex')
   })
 })
 

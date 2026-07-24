@@ -76,17 +76,18 @@ export const makeExec = (cli: string, timeoutMs?: number): Exec => (args) =>
     })
     let stdout = ''
     let stderr = ''
-    let timedOut = false
-    const timer = setTimeout(() => { timedOut = true; child.kill() }, limit)
+    // 데드라인에서 즉시 reject 한다 — close 를 기다리면 SIGTERM 을 무시하는 자식이나
+    // stdout 파이프를 물려받은 손자 프로세스가 살아 있는 한 close 가 안 와서 다시 무한 대기다
+    // (재검증 리뷰 1). 이미 settle 된 promise 라 뒤늦은 close 의 resolve/reject 는 무해하다.
+    const timer = setTimeout(() => {
+      child.kill()
+      reject(new Error(`${cli} timed out after ${limit}ms`))
+    }, limit)
     child.stdout.on('data', d => { stdout += d })
     child.stderr.on('data', d => { stderr += d })
     child.on('error', (e) => { clearTimeout(timer); reject(e) })
     child.on('close', (exitCode) => {
       clearTimeout(timer)
-      if (timedOut) {
-        reject(new Error(`${cli} timed out after ${limit}ms`))
-        return
-      }
       const outcome: ExecOutcome = { stdout, exitCode, stderr }
       const failure = execFailureReason(outcome, cli)
       if (failure) {

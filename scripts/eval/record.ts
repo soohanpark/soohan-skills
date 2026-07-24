@@ -67,8 +67,9 @@ const errorRun = (reason: string): ParsedRun => ({
   triggered: false,
   skillReadFallback: false,
   finalText: '',
-  // makeExec 의 wall-clock 킬만 이 메시지를 만든다 — 실행 실패 중 유일하게 timeout 으로 분류한다
-  status: /timed out after \d+ms/.test(reason) ? 'timeout' : 'error',
+  // makeExec 의 wall-clock 킬만 이 메시지를 만든다 — 양끝 앵커로 정확히 그 메시지만 잡는다.
+  // stderr 꼬리가 접혀 들어간 "... Request timed out after 30000ms" 류는 error 로 남는다 (재검증 리뷰 4)
+  status: /^\S+ timed out after \d+ms$/.test(reason) ? 'timeout' : 'error',
   terminalReason: reason,
   tokens: 0,
   costUsd: 0,

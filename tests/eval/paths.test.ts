@@ -37,6 +37,11 @@ describe('resolveSkill', () => {
   it('rejects a path whose plugin segment is a hidden directory like ~/.codex/skills/<name>', () => {
     expect(() => resolveSkill('/Users/x/.codex/skills/blin-mr', '/repo')).toThrow(/plugin/)
   })
+
+  it('walks past a version segment in the marketplace cache layout', () => {
+    const r = resolveSkill('/u/.claude/plugins/cache/official/dry-skill/1.2.0/skills/run', '/repo')
+    expect(r.id).toBe('dry-skill:run')
+  })
 })
 
 describe('slug', () => {

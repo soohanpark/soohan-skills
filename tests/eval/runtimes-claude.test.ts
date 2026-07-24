@@ -76,6 +76,13 @@ describe('makeExec', () => {
     const exec = makeExec('true', 5000)
     await expect(exec([])).rejects.toThrow(/true produced no output/)
   })
+
+  it('rejects at the deadline even when the child ignores SIGTERM — close may never come', async () => {
+    const exec = makeExec('bash', 150)
+    const t0 = Date.now()
+    await expect(exec(['-c', 'trap "" TERM; sleep 2'])).rejects.toThrow(/timed out after 150ms/)
+    expect(Date.now() - t0).toBeLessThan(1500)
+  })
 })
 
 describe('execFailureReason', () => {
