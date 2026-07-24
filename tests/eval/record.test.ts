@@ -166,3 +166,32 @@ describe('recordAll', () => {
     expect(meta.repoSha).toBe('')
   })
 })
+
+describe('recursion guard', () => {
+  const origDepth = process.env.SKILL_EVAL_DEPTH
+  afterEach(() => {
+    if (origDepth === undefined) delete process.env.SKILL_EVAL_DEPTH
+    else process.env.SKILL_EVAL_DEPTH = origDepth
+  })
+
+  it('refuses to run when already nested one level deep', async () => {
+    process.env.SKILL_EVAL_DEPTH = '1'
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await expect(recordAll({ plan, skill, outDir: out, exec: execOk }))
+      .rejects.toThrow(/SKILL_EVAL_DEPTH/)
+  })
+
+  it('runs normally at depth 0', async () => {
+    process.env.SKILL_EVAL_DEPTH = '0'
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
+    expect(res.written).toBe(1)
+  })
+
+  it('runs normally when the variable is unset', async () => {
+    delete process.env.SKILL_EVAL_DEPTH
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
+    expect(res.written).toBe(1)
+  })
+})

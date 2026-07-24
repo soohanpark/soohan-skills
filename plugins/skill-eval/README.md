@@ -1,0 +1,50 @@
+# skill-eval
+
+스킬 하나의 트리거 정확도와 품질 델타를 실제 실행으로 측정하는 평가 하네스.
+
+## 참고
+
+이 플러그인은 `soohan-skills` 저장소의 `pnpm eval *` 스크립트(`scripts/eval/`)를 호출한다.
+따라서 이 저장소를 클론한 작업 디렉터리 안에서(또는 `cwd`를 그리로 두고) 써야 의미가 있다 —
+다른 프로젝트에 설치해도 하네스 스크립트 자체가 없으면 아무것도 실행되지 않는다.
+
+## 설치
+
+Claude Code:
+
+```
+/plugin install skill-eval@soohan-skills
+/reload-plugins
+```
+
+Codex · Gemini · Kimi CLI (레포 루트에서):
+
+```bash
+./install.sh
+```
+
+## 사용법
+
+- 자연어: "이 스킬 평가해줘", "blin-mr 발동률 좀 재줘", "description 고쳤는데 회귀 확인해줘"
+- 명시 호출: `/skill-eval:score <plugin:skill>` — Claude Code 전용
+
+## 동작
+
+1. `pnpm eval mine <skill>` — 세션 로그에서 케이스 채굴 (사람이 검토 후 승격)
+2. `pnpm eval record <skill>` — 실제 실행, `evals/runs/<runId>/`에 원본 적재
+3. `pnpm eval judge <runId>` — 페어와이즈 블라인드 심판
+4. `pnpm eval report <runId>` — 표 출력
+
+스킬은 이 네 단계를 순서대로 부르고, near-miss 선별·실패 원인 진단·description 재작성
+제안처럼 판단이 필요한 지점에서만 개입한다.
+
+## 이 스킬이 하지 않는 것
+
+- `cases.draft.jsonl`을 `cases.jsonl`로 직접 승격하지 않는다 — 실사용 프롬프트 원문이 들어 있어
+  사람이 확인해야 한다.
+- SKILL.md를 직접 고치지 않는다 — 재작성 제안까지만 한다.
+- 애플리케이션 로직의 일반 유닛 테스트 작성 요청에는 반응하지 않는다.
+
+## Author
+
+soohanpark

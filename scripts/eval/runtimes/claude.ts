@@ -62,7 +62,10 @@ export const buildArgs = (
 export const execClaude: Exec = (args) =>
   new Promise((resolve, reject) => {
     const started = Date.now()
-    const child = spawn('claude', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('claude', args, {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, SKILL_EVAL_DEPTH: String(Number(process.env.SKILL_EVAL_DEPTH ?? '0') + 1) }
+    })
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', d => { stdout += d })
