@@ -53,7 +53,9 @@ export const buildArgs = (
     return ['-p', prompt, '--disallowedTools', ...denied, ...STREAM_ARGS]
   }
 
-  throw new Error(`variant "forced" is not implemented yet`)
+  // 검증(2026-07-24): claude -p "/plugin:skill ..." 가 -p 모드에서도 Skill tool_use를
+  // 실제로 발동시킨다 (stream-json에 "name":"Skill","input":{"skill":"<id>"} 확인).
+  return ['-p', `/${skill.id} ${prompt}`, ...STREAM_ARGS]
 }
 
 /* v8 ignore start */

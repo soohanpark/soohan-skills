@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures } from '../../scripts/eval/score'
+import { scoreTrigger, collectFailures, scoreRules } from '../../scripts/eval/score'
 import type { EvalCase } from '../../scripts/eval/cases'
 import type { IndexEntry } from '../../scripts/eval/record'
 
@@ -137,5 +137,56 @@ describe('collectFailures', () => {
     const f = collectFailures(index, cases)
     expect(f).toHaveLength(1)
     expect(f[0]).toEqual({ caseId: 'p1', kind: 'error', detail: 'api_error' })
+  })
+})
+
+describe('scoreRules', () => {
+  const ruleCases: EvalCase[] = [
+    { id: 'q1', prompt: 'x', expect: 'trigger', split: 'test', must: ['## 변경 사항'] },
+    { id: 'q2', prompt: 'z', expect: 'trigger', split: 'test' } // must/must_not 미선언 — 규칙 채점 대상 아님
+  ]
+
+  const forced = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, over),
+    variant: 'forced'
+  })
+
+  it('rule-scores only cases that declare must or must_not', () => {
+    const index = [forced('q1', { finalText: '## 변경 사항\n내용' }), forced('q2', { finalText: '아무거나' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.total).toBe(1)
+  })
+
+  it('counts a pass when the forced output satisfies its rules', () => {
+    const index = [forced('q1', { finalText: '## 변경 사항\n내용' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.pass).toBe(1)
+    expect(s.failures).toEqual([])
+  })
+
+  it('reports a must-kind failure naming what failed', () => {
+    const index = [forced('q1', { finalText: '엉뚱한 내용' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.pass).toBe(0)
+    expect(s.failures).toEqual([{ caseId: 'q1', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
+  })
+
+  it('excludes an errored forced run from both pass and total, like the trigger axis', () => {
+    const index = [forced('q1', { status: 'error', terminalReason: 'api_error' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.total).toBe(0)
+    expect(s.pass).toBe(0)
+    expect(s.failures).toEqual([])
+  })
+
+  it('excludes a case with no forced run at all', () => {
+    const s = scoreRules([], ruleCases)
+    expect(s).toEqual({ pass: 0, total: 0, failures: [] })
+  })
+
+  it('ignores with/without runs for the same case id — only forced counts', () => {
+    const index = [entry('q1', 1, { finalText: '## 변경 사항' })] // variant 'with'
+    const s = scoreRules(index, ruleCases)
+    expect(s.total).toBe(0)
   })
 })

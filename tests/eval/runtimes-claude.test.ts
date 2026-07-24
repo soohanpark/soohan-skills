@@ -47,8 +47,15 @@ describe('buildArgs', () => {
     expect(args).toContain(prompt)
   })
 
-  it('throws for the forced variant until it is implemented', () => {
-    expect(() => buildArgs('forced', skill, 'x')).toThrow(/forced/)
+  it('builds the forced variant so the skill is invoked directly', () => {
+    const args = buildArgs('forced', skill, 'MR 써줘')
+    expect(args).toContain('-p')
+    expect(args.join(' ')).toContain('demo:write')
+    expect(args).toContain('--verbose')
+  })
+
+  it('does not cut turns in the forced variant', () => {
+    expect(buildArgs('forced', skill, 'x')).not.toContain('--max-turns')
   })
 })
 

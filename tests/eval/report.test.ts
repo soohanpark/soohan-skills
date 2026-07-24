@@ -39,6 +39,20 @@ describe('verdict', () => {
     const bad = { ...score, test: { ...score.test, negative: { falseHit: 6, total: 12 } } }
     expect(verdict(bad).passed).toBe(false)
   })
+
+  it('ignores the rules gate when no rules were scored (total 0)', () => {
+    expect(verdict(score, { pass: 0, total: 0 }).passed).toBe(true)
+  })
+
+  it('passes when the must/must_not pass rate is at least 90%', () => {
+    expect(verdict(score, { pass: 9, total: 10 }).passed).toBe(true)
+  })
+
+  it('fails and names must/must_not when the rule pass rate is too low', () => {
+    const v = verdict(score, { pass: 5, total: 10 })
+    expect(v.passed).toBe(false)
+    expect(v.reasons.join(' ')).toMatch(/must\/must_not/)
+  })
 })
 
 describe('formatReport', () => {
@@ -68,5 +82,22 @@ describe('formatReport', () => {
   it('does not warn about a degraded baseline when no baseline runs happened', () => {
     const out = formatReport({ meta: { ...meta, degradedBaseline: true }, score, failures: [] })
     expect(out).not.toContain('baseline 저하')
+  })
+
+  it('adds a 품질 section with the must/must_not pass rate when rules were scored', () => {
+    const out = formatReport({ meta, score, failures: [], rules: { pass: 9, total: 10 } })
+    expect(out).toContain('품질')
+    expect(out).toContain('9/10')
+    expect(out).toContain('90%')
+  })
+
+  it('omits the 품질 section when no rules were passed in', () => {
+    const out = formatReport({ meta, score, failures: [] })
+    expect(out).not.toContain('품질')
+  })
+
+  it('omits the 품질 section when rules total is zero', () => {
+    const out = formatReport({ meta, score, failures: [], rules: { pass: 0, total: 0 } })
+    expect(out).not.toContain('품질')
   })
 })

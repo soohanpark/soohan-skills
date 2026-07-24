@@ -31,7 +31,7 @@ export const cmdRecord = async (skillArg: string, repoRoot: string): Promise<voi
     console.error(`✗ ${file} 가 없습니다. 먼저 'pnpm eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
     process.exit(1)
   }
-  const plan = planRuns(loadCases(file), { variants: ['with'], repeats: 3 })
+  const plan = planRuns(loadCases(file), { variants: ['with', 'forced', 'without'], repeats: 3 })
   const runId = runDirName(skill.id, new Date())
   const res = await recordAll({
     plan, skill,
