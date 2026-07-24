@@ -4,7 +4,7 @@ import { loadCases } from '../cases.js'
 import type { PairwiseScore } from '../judge.js'
 import { casesFile, evalsRoot, runDir } from '../paths.js'
 import type { IndexEntry, RunMeta } from '../record.js'
-import { formatReport } from '../report.js'
+import { formatDiff, formatReport } from '../report.js'
 import { collectFailures, scoreRules, scoreTrigger } from '../score.js'
 
 /* v8 ignore start */
@@ -38,5 +38,9 @@ export const cmdReport = (runId: string, repoRoot: string): void => {
     judgeTrustworthy: pairwise?.judgeTrustworthy,
     hasBaselineRuns: index.some(e => e.variant === 'without')
   }))
+}
+
+export const cmdDiff = (beforeId: string, afterId: string, repoRoot: string): void => {
+  console.log(formatDiff(loadRun(repoRoot, beforeId), loadRun(repoRoot, afterId)))
 }
 /* v8 ignore stop */

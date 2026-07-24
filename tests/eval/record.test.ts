@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { planRuns, recordAll } from '../../scripts/eval/record'
+import { isTransient, planRuns, recordAll } from '../../scripts/eval/record'
 import type { EvalCase } from '../../scripts/eval/cases'
 import type { Exec } from '../../scripts/eval/runtimes/claude'
 
@@ -26,6 +26,7 @@ const errStream = [
 ].join('\n')
 
 const execOk: Exec = async () => ({ stdout: okStream, durationMs: 12 })
+const noSleep = async () => {}
 
 beforeEach(() => { out = mkdtempSync(join(tmpdir(), 'eval-record-')) })
 afterEach(() => { rmSync(out, { recursive: true, force: true }) })
@@ -164,6 +165,96 @@ describe('recordAll', () => {
     await recordAll({ plan, skill, outDir: out, exec: execOk })
     const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
     expect(meta.repoSha).toBe('')
+  })
+})
+
+describe('isTransient', () => {
+  it('treats rate limits as transient', () => {
+    expect(isTransient('rate_limit_error')).toBe(true)
+  })
+
+  it('treats overload and connection resets as transient', () => {
+    expect(isTransient('overloaded_error')).toBe(true)
+    expect(isTransient('connect ECONNRESET')).toBe(true)
+  })
+
+  it('does not treat auth failures as transient — retrying will not help', () => {
+    expect(isTransient('authentication_failed')).toBe(false)
+  })
+
+  it('does not treat max_turns as transient', () => {
+    expect(isTransient('max_turns')).toBe(false)
+  })
+})
+
+describe('retry', () => {
+  const rateLimited = [
+    '{"type":"system","subtype":"init","model":"m","skills":[]}',
+    '{"type":"result","is_error":true,"terminal_reason":"rate_limit_error","total_cost_usd":0,"usage":{}}'
+  ].join('\n')
+
+  it('retries once on a transient failure and keeps the successful result', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let n = 0
+    const exec: Exec = async () => {
+      n += 1
+      return { stdout: n === 1 ? rateLimited : okStream, durationMs: 1 }
+    }
+    const res = await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    expect(n).toBe(2)
+    expect(res.errorRate).toBe(0)
+  })
+
+  it('does not retry a non-transient failure', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let n = 0
+    const exec: Exec = async () => { n += 1; return { stdout: errStream, durationMs: 1 } }
+    await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    expect(n).toBe(1)
+  })
+
+  it('gives up after one retry and records the error', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let n = 0
+    const exec: Exec = async () => { n += 1; return { stdout: rateLimited, durationMs: 1 } }
+    const res = await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    expect(n).toBe(2)
+    expect(res.errorRate).toBe(1)
+  })
+
+  it('retries a thrown exec whose message is transient', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let n = 0
+    const exec: Exec = async () => {
+      n += 1
+      if (n === 1) throw new Error('connect ECONNRESET')
+      return { stdout: okStream, durationMs: 1 }
+    }
+    const res = await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    expect(n).toBe(2)
+    expect(res.errorRate).toBe(0)
+    expect(existsSync(join(out, 'with--a--r1.jsonl'))).toBe(true)
+  })
+
+  it('does not write a raw file when every attempt throws', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const exec: Exec = async () => { throw new Error('rate_limit_error') }
+    const res = await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    expect(existsSync(join(out, 'with--a--r1.jsonl'))).toBe(false)
+    expect(res.errorRate).toBe(1)
+  })
+
+  it('calls the injected sleep exactly once on a single retry', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let n = 0
+    const exec: Exec = async () => {
+      n += 1
+      return { stdout: n === 1 ? rateLimited : okStream, durationMs: 1 }
+    }
+    let sleepCalls = 0
+    const sleep = async (ms: number) => { sleepCalls += 1; expect(ms).toBeGreaterThan(0) }
+    await recordAll({ plan, skill, outDir: out, exec, sleep })
+    expect(sleepCalls).toBe(1)
   })
 })
 

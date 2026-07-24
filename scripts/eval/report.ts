@@ -96,3 +96,45 @@ export const formatReport = (args: {
 
   return lines.join('\n')
 }
+
+const rate = (n: number, d: number): number | null => (d === 0 ? null : n / d)
+
+const signedPct = (before: number | null, after: number | null): string => {
+  if (before === null || after === null) return '—'
+  const delta = Math.round((after - before) * 100)
+  return `${delta > 0 ? '+' : ''}${delta}%`
+}
+
+export const formatDiff = (
+  before: { meta: RunMeta; score: TriggerScore },
+  after: { meta: RunMeta; score: TriggerScore }
+): string => {
+  const lines: string[] = []
+  lines.push(`회귀 비교 · ${before.meta.runId} → ${after.meta.runId}`)
+  lines.push('')
+
+  const bp = before.score.test.positive
+  const ap = after.score.test.positive
+  const bn = before.score.test.negative
+  const an = after.score.test.negative
+
+  lines.push(`  positive 발동률   ${pct(bp.hit, bp.total)} → ${pct(ap.hit, ap.total)}   ${signedPct(rate(bp.hit, bp.total), rate(ap.hit, ap.total))}`)
+  lines.push(`  negative 오발동률  ${pct(bn.falseHit, bn.total)} → ${pct(an.falseHit, an.total)}   ${signedPct(rate(bn.falseHit, bn.total), rate(an.falseHit, an.total))}`)
+  lines.push('')
+
+  // 점수 변화의 원인이 내 스킬인지 남의 스킬인지 가르는 유일한 근거 (설계 §4-2)
+  const beforeSet = new Set(before.meta.loadedSkills)
+  const afterSet = new Set(after.meta.loadedSkills)
+  const added = after.meta.loadedSkills.filter(s => !beforeSet.has(s))
+  const removed = before.meta.loadedSkills.filter(s => !afterSet.has(s))
+
+  if (added.length === 0 && removed.length === 0) {
+    lines.push('  경쟁 스킬 변화 없음 — 점수 변화는 스킬 자체의 변경에서 왔습니다.')
+  } else {
+    if (added.length > 0) lines.push(`  추가된 경쟁 스킬 ${added.length}개: ${added.join(', ')}`)
+    if (removed.length > 0) lines.push(`  사라진 경쟁 스킬 ${removed.length}개: ${removed.join(', ')}`)
+    lines.push('  ⚠ 경쟁 환경이 바뀌었습니다. 점수 변화를 스킬 변경 탓으로만 돌리지 마세요.')
+  }
+
+  return lines.join('\n')
+}

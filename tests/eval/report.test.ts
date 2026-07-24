@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatReport, pct, verdict } from '../../scripts/eval/report'
+import { formatDiff, formatReport, pct, verdict } from '../../scripts/eval/report'
 import type { TriggerScore } from '../../scripts/eval/score'
 import type { PairwiseScore } from '../../scripts/eval/judge'
 
@@ -187,5 +187,54 @@ describe('formatReport with rules and pairwise together', () => {
     expect(out).toContain('must/must_not')
     expect(out).toContain('9/10')
     expect(out).toContain('5승 1무 0패')
+  })
+})
+
+describe('formatDiff', () => {
+  const before = {
+    meta: { ...meta, runId: 'r1', loadedSkills: ['a', 'b'] },
+    score: { ...score, test: { ...score.test, positive: { hit: 12, total: 13 } } }
+  }
+  const after = {
+    meta: { ...meta, runId: 'r2', loadedSkills: ['a', 'b', 'c'] },
+    score: { ...score, test: { ...score.test, positive: { hit: 9, total: 13 } } }
+  }
+
+  it('shows both run ids', () => {
+    const out = formatDiff(before, after)
+    expect(out).toContain('r1')
+    expect(out).toContain('r2')
+  })
+
+  it('shows the signed delta of the positive rate', () => {
+    expect(formatDiff(before, after)).toMatch(/-23%|-23 ?%/)
+  })
+
+  it('names skills that appeared between the two runs', () => {
+    const out = formatDiff(before, after)
+    expect(out).toContain('추가된 경쟁 스킬')
+    expect(out).toContain('c')
+  })
+
+  it('names skills that disappeared', () => {
+    const out = formatDiff(after, before)
+    expect(out).toContain('사라진 경쟁 스킬')
+    expect(out).toContain('c')
+  })
+
+  it('says the field was unchanged when the skill list is identical', () => {
+    const out = formatDiff(before, { ...before, meta: { ...before.meta, runId: 'r3' } })
+    expect(out).toContain('경쟁 스킬 변화 없음')
+  })
+
+  it('warns not to attribute the score change to the skill alone when competing skills changed', () => {
+    const out = formatDiff(before, after)
+    expect(out).toContain('스킬 변경 탓으로만 돌리지')
+  })
+
+  it('shows a dash instead of dividing by zero when the split is empty', () => {
+    const emptyBefore = { ...before, score: { ...before.score, test: { ...before.score.test, positive: { hit: 0, total: 0 } } } }
+    const out = formatDiff(emptyBefore, after)
+    expect(out).toContain('—')
   })
 })

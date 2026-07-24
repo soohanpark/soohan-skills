@@ -71,6 +71,13 @@ const errorRun = (reason: string): ParsedRun => ({
   loadedSkills: []
 })
 
+// rate limit·overload·연결 오류만 일시적이다. 인증 실패·max_turns 는 재시도해도 결과가 같으므로 대상에서 뺀다 (설계 §10)
+const TRANSIENT = /rate.?limit|overloaded|ECONNRESET|ECONNREFUSED|ETIMEDOUT|socket hang up/i
+
+export const isTransient = (reason: string): boolean => TRANSIENT.test(reason)
+
+const defaultSleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+
 export const recordAll = async (args: {
   plan: PlanItem[]
   skill: SkillRef
@@ -78,6 +85,7 @@ export const recordAll = async (args: {
   exec: Exec
   degradedBaseline?: boolean
   repoSha?: string
+  sleep?: (ms: number) => Promise<void>
 }): Promise<{ written: number; skipped: number; errorRate: number }> => {
   // skill-eval 을 forced 로 돌리면 그 안에서 다시 러너를 부른다. 한 단계에서 끊는다 (설계 §9)
   const depth = Number(process.env.SKILL_EVAL_DEPTH ?? '0')
@@ -86,6 +94,7 @@ export const recordAll = async (args: {
   }
 
   const { plan, skill, outDir, exec } = args
+  const sleep = args.sleep ?? defaultSleep
   mkdirSync(outDir, { recursive: true })
 
   const index: IndexEntry[] = []
@@ -107,23 +116,35 @@ export const recordAll = async (args: {
       continue
     }
 
-    let parsed: ParsedRun
-    let durationMs = 0
-    try {
-      // Task 3 Step 5 실측: Read(<dir>/**) deny 패턴은 -p 모드에서 무시된다.
-      // 따라서 degraded(Read/Grep/Glob 전면 차단)가 baseline 의 기본값이다.
-      const argv = buildArgs(item.variant, skill, item.prompt, {
-        degradedBaseline: args.degradedBaseline ?? true
-      })
-      const { stdout, durationMs: ms } = await exec(argv)
-      durationMs = ms
-      writeFileSync(target, stdout)
-      parsed = parseClaudeStream(stdout, { skillId: skill.id, skillDir: skill.dir })
-    } catch (e) {
-      // 원본 파일을 만들지 않는다: 빈 파일을 남기면 다음 호출의 existsSync 가
-      // 이를 "완료됨"으로 오인해 일시적 실패를 영원히 재시도하지 못하게 막는다.
-      parsed = errorRun((e as Error).message)
+    const attempt = async (): Promise<{ parsed: ParsedRun; stdout: string | null; durationMs: number }> => {
+      try {
+        // Task 3 Step 5 실측: Read(<dir>/**) deny 패턴은 -p 모드에서 무시된다.
+        // 따라서 degraded(Read/Grep/Glob 전면 차단)가 baseline 의 기본값이다.
+        const argv = buildArgs(item.variant, skill, item.prompt, {
+          degradedBaseline: args.degradedBaseline ?? true
+        })
+        const { stdout, durationMs: ms } = await exec(argv)
+        return {
+          parsed: parseClaudeStream(stdout, { skillId: skill.id, skillDir: skill.dir }),
+          stdout,
+          durationMs: ms
+        }
+      } catch (e) {
+        // stdout: null — 원본 파일을 만들지 않는다는 뜻이다. 빈 파일을 남기면 다음 호출의
+        // existsSync 가 이를 "완료됨"으로 오인해 일시적 실패를 영원히 재시도하지 못하게 막는다.
+        return { parsed: errorRun((e as Error).message), stdout: null, durationMs: 0 }
+      }
     }
+
+    let result = await attempt()
+    if (result.parsed.status !== 'ok' && isTransient(result.parsed.terminalReason)) {
+      await sleep(2000) // 1회 지수 백오프. 판정은 replay 이므로 재시도 대상이 아니다 (설계 §10)
+      result = await attempt()
+    }
+
+    if (result.stdout !== null) writeFileSync(target, result.stdout)
+    const parsed = result.parsed
+    const durationMs = result.durationMs
 
     written += 1
     if (parsed.status !== 'ok') errors += 1
