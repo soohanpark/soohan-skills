@@ -1,0 +1,8 @@
+{"type":"thread.started","thread_id":"c1"}
+{"type":"turn.started"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Skill descriptions were shortened to fit the 2% skills context budget."}}
+{"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"`blin-mr:write` 스킬을 사용해 처리하겠습니다."}}
+{"type":"item.started","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"sed -n '1,240p' plugins/blin-mr/skills/write/SKILL.md\"","aggregated_output":"","exit_code":null,"status":"in_progress"}}
+{"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc \"sed -n '1,240p' plugins/blin-mr/skills/write/SKILL.md\"","aggregated_output":"---\nname: write\n---\n","exit_code":0,"status":"completed"}}
+{"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":"MR 본문을 작성했습니다."}}
+{"type":"turn.completed","usage":{"input_tokens":1000,"cached_input_tokens":200,"cache_write_input_tokens":0,"output_tokens":150,"reasoning_output_tokens":40}}
