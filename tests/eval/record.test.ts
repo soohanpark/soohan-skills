@@ -82,6 +82,13 @@ describe('recordAll', () => {
     expect(meta.model).toBe('m')
   })
 
+  it('records the skill directory in meta.json so judge can find external skills', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.skillDir).toBe(skill.dir)
+  })
+
   it('skips items whose raw file already exists', async () => {
     const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
     mkdirSync(out, { recursive: true })

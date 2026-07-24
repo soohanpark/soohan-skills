@@ -5,6 +5,24 @@ export type Verdict = 'A' | 'B' | 'tie'
 export const deriveCriteria = (c: EvalCase, skillDescription: string): string =>
   c.criteria ?? `다음이 이 작업에서 약속된 것이다: ${skillDescription}`
 
+// SKILL.md frontmatter 에서 description 값만 꺼낸다 — name: 같은 메타데이터가 기준에 섞이면
+// isRationaleOnTopic 의 어휘 검사가 그 잡음과의 겹침도 인정하게 된다 (설계 §8-2).
+// ponytail: 단일 라인 description 만 — 이 레포 규약이다. 접힌 YAML 블록(>-)이 필요해지면 추가.
+export const skillDescription = (skillMd: string): string => {
+  const frontmatter = skillMd.split('---')[1] ?? ''
+  const m = /^description:\s*(.+)$/m.exec(frontmatter)
+  return (m ? m[1] : frontmatter).trim().replace(/^(['"])(.*)\1$/, '$2')
+}
+
+// 심판 호출은 한 턴짜리 텍스트 응답이다 — 도구가 필요 없다. 프롬프트에 녹화 트랜스크립트
+// (신뢰 불가 입력)가 들어가므로 턴과 도구를 함께 잠근다. 턴 초과로 잘리면 parseVerdict 가
+// tie 로 안전하게 폴백한다 (설계 §8-2, 리뷰 R7).
+export const buildJudgeArgs = (prompt: string): string[] => [
+  '-p', prompt, '--output-format', 'stream-json', '--verbose',
+  '--max-turns', '1',
+  '--disallowedTools', 'Skill', 'Bash', 'Read', 'Grep', 'Glob', 'Write', 'Edit', 'WebFetch', 'WebSearch'
+]
+
 export const buildJudgePrompt = (args: { criteria: string; a: string; b: string }): string => `
 아래 두 출력을 주어진 기준으로만 비교하라. 기준 밖의 요소(친절함, 길이, 어조 등)는 판단에 넣지 마라.
 

@@ -10,7 +10,7 @@ const score: TriggerScore = {
 }
 
 const meta: RunMeta = {
-  runId: '2026-07-23T14-02', skillId: 'demo:write', model: 'claude-opus-4-8',
+  runId: '2026-07-23T14-02', skillId: 'demo:write', skillDir: '/tmp/plugins/demo/skills/write', model: 'claude-opus-4-8',
   judgeModel: null, loadedSkills: new Array(77).fill('s'), repoSha: 'abc1234',
   casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false,
   runtime: 'claude'

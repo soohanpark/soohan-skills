@@ -5,19 +5,19 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadCases } from '../cases.js'
 import {
-  buildJudgePrompt, deriveCriteria, isJudgeTrustworthy, isRationaleOnTopic,
-  parseVerdict, resolvePair, scorePairwise, type PairResult, type Verdict
+  buildJudgeArgs, buildJudgePrompt, deriveCriteria, isJudgeTrustworthy, isRationaleOnTopic,
+  parseVerdict, resolvePair, scorePairwise, skillDescription, type PairResult, type Verdict
 } from '../judge.js'
 import { parseClaudeStream } from '../parse.js'
 import { casesFile, evalsRoot, resolveSkill, runDir } from '../paths.js'
 import type { IndexEntry, RunMeta } from '../record.js'
 import { execClaude } from '../runtimes/claude.js'
 
-const askJudge = async (criteria: string, a: string, b: string): Promise<{ verdict: Verdict; rationale: string }> => {
+const askJudge = async (criteria: string, a: string, b: string): Promise<{ verdict: Verdict; rationale: string; model: string }> => {
   const prompt = buildJudgePrompt({ criteria, a, b })
-  const { stdout } = await execClaude(['-p', prompt, '--output-format', 'stream-json', '--verbose'])
+  const { stdout } = await execClaude(buildJudgeArgs(prompt))
   const parsed = parseClaudeStream(stdout, { skillId: '', skillDir: '' })
-  return parseVerdict(parsed.finalText)
+  return { ...parseVerdict(parsed.finalText), model: parsed.model }
 }
 
 export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> => {
@@ -26,8 +26,17 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
   const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as RunMeta
   const index = JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8')) as IndexEntry[]
   const cases = loadCases(casesFile(repoRoot, meta.skillId))
-  const skill = resolveSkill(meta.skillId, repoRoot)
-  const description = readFileSync(join(skill.dir, 'SKILL.md'), 'utf8').split('---')[1] ?? ''
+  // skillDir 는 이 필드가 생기기 전 실행에는 없다 — 레포 안 스킬이라면 id 로 복원할 수 있다.
+  const skillDir = meta.skillDir ?? resolveSkill(meta.skillId, repoRoot).dir
+  const description = skillDescription(readFileSync(join(skillDir, 'SKILL.md'), 'utf8'))
+
+  // 실제 심판 모델은 첫 응답 스트림에서 나온다 — §8-3의 "심판 모델 기록"은 CLI 이름이 아니라 이 값이다.
+  let judgeModel: string | null = null
+  const ask = async (criteria: string, a: string, b: string) => {
+    const r = await askJudge(criteria, a, b)
+    judgeModel = judgeModel ?? (r.model || null)
+    return r
+  }
 
   const results: PairResult[] = []
 
@@ -40,11 +49,11 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
       continue
     }
 
-    const criteria = deriveCriteria(c, description.trim())
+    const criteria = deriveCriteria(c, description)
     try {
       // 1회차: forced=A, 2회차: 순서를 뒤집어 forced=B
-      const first = await askJudge(criteria, forced.parsed.finalText, without.parsed.finalText)
-      const flipped = await askJudge(criteria, without.parsed.finalText, forced.parsed.finalText)
+      const first = await ask(criteria, forced.parsed.finalText, without.parsed.finalText)
+      const flipped = await ask(criteria, without.parsed.finalText, forced.parsed.finalText)
 
       const offTopic = !isRationaleOnTopic(first.rationale, criteria) || !isRationaleOnTopic(flipped.rationale, criteria)
       results.push({
@@ -66,7 +75,7 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
   let judgeTrustworthy = true
   if (sample) {
     try {
-      const sanity = await askJudge('출력이 기준을 충족하는가', sample.parsed.finalText, sample.parsed.finalText)
+      const sanity = await ask('출력이 기준을 충족하는가', sample.parsed.finalText, sample.parsed.finalText)
       judgeTrustworthy = isJudgeTrustworthy(sanity)
       if (!judgeTrustworthy) console.error('⚠ 심판 신뢰성 실패 — 동일 출력에 우열을 매겼습니다. 정성 판정 결과를 신뢰하지 마세요.')
     } catch (e) {
@@ -79,10 +88,10 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
   const verdictFile = join(EVALS, 'verdicts', `${runId}.json`)
   mkdirSync(join(EVALS, 'verdicts'), { recursive: true })
   writeFileSync(verdictFile, JSON.stringify({
-    runId, judgeModel: 'claude', judgeTrustworthy, results, score: scorePairwise(results)
+    runId, judgeModel: judgeModel ?? 'claude', judgeTrustworthy, results, score: scorePairwise(results)
   }, null, 2))
 
-  writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...meta, judgeModel: 'claude' }, null, 2))
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...meta, judgeModel: judgeModel ?? 'claude' }, null, 2))
 
   console.log(`판정 완료: ${results.length}쌍 → ${verdictFile}`)
 }

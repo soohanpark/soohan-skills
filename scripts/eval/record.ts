@@ -21,6 +21,7 @@ export type RuntimeName = 'claude' | 'codex'
 export interface RunMeta {
   runId: string
   skillId: string
+  skillDir: string   // 외부 경로 스킬도 judge 가 SKILL.md 를 찾을 수 있어야 한다 (리뷰 R4)
   model: string
   judgeModel: string | null
   loadedSkills: string[]
@@ -168,6 +169,7 @@ export const recordAll = async (args: {
   const meta: RunMeta = {
     runId: outDir.split('/').pop() ?? outDir,
     skillId: skill.id,
+    skillDir: skill.dir,
     model: first?.parsed.model ?? '',
     judgeModel: null,
     loadedSkills: first?.parsed.loadedSkills ?? [],

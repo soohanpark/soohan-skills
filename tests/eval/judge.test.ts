@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
-  deriveCriteria, buildJudgePrompt, parseVerdict, isRationaleOnTopic, resolvePair,
-  isJudgeTrustworthy, scorePairwise
+  buildJudgeArgs, deriveCriteria, buildJudgePrompt, parseVerdict, isRationaleOnTopic, resolvePair,
+  isJudgeTrustworthy, scorePairwise, skillDescription
 } from '../../scripts/eval/judge'
 import type { EvalCase } from '../../scripts/eval/cases'
 
@@ -15,6 +15,41 @@ describe('deriveCriteria', () => {
 
   it('falls back to the skill description', () => {
     expect(deriveCriteria(base, 'MR 본문을 하십시오체로 작성한다')).toContain('하십시오체')
+  })
+})
+
+describe('skillDescription', () => {
+  it('extracts only the description value from frontmatter', () => {
+    const md = '---\nname: score\ndescription: MR 본문을 하십시오체로 작성한다\n---\n\n# 본문'
+    expect(skillDescription(md)).toBe('MR 본문을 하십시오체로 작성한다')
+    expect(skillDescription(md)).not.toContain('score')
+  })
+
+  it('strips surrounding quotes', () => {
+    expect(skillDescription('---\ndescription: "따옴표 설명"\n---\n')).toBe('따옴표 설명')
+  })
+
+  it('falls back to the whole frontmatter when no description key exists', () => {
+    expect(skillDescription('---\nname: run\n---\n')).toContain('name: run')
+  })
+})
+
+describe('buildJudgeArgs', () => {
+  it('caps the judge session at one turn — a text verdict needs no more', () => {
+    expect(buildJudgeArgs('p')).toEqual(expect.arrayContaining(['--max-turns', '1']))
+  })
+
+  it('disallows tools — the prompt embeds untrusted transcripts', () => {
+    const args = buildJudgeArgs('p')
+    expect(args.indexOf('--disallowedTools')).toBeGreaterThan(-1)
+    expect(args).toContain('Bash')
+    expect(args).toContain('Skill')
+  })
+
+  it('passes the prompt and requests stream-json output', () => {
+    const args = buildJudgeArgs('기준으로 비교하라')
+    expect(args).toContain('기준으로 비교하라')
+    expect(args).toContain('stream-json')
   })
 })
 
