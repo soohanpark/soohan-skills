@@ -117,7 +117,9 @@ describe('buildAugmentPrompt', () => {
     const p = buildAugmentPrompt('MR 써줘', 3)
     expect(p).toContain('MR 써줘')
     expect(p).toMatch(/표현만/)
-    expect(p).toMatch(/새로운 상황|새 시나리오/)
+    // 금지 규칙 자체를 검증한다 — 어휘 존재가 아니라 부정형이 있어야 한다.
+    expect(p).toMatch(/만들지 마라|추가하지 마라|하지 마라/)
+    expect(p).not.toMatch(/만들어도 (된다|좋다)|추가해도 (된다|좋다)/)
   })
 
   it('requests the given number of variants as a JSON array', () => {

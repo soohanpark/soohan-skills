@@ -39,11 +39,17 @@ export const cmdMine = async (skillArg: string, repoRoot: string): Promise<void>
   // 표현 변형으로 물량을 채운다. 변형은 원본의 split 을 물려받으므로 누수가 없다 (설계 §6-3, §8-5)
   const augmented: EvalCase[] = []
   for (const c of originals) {
-    const { stdout } = await execClaude([
-      '-p', buildAugmentPrompt(c.prompt, 2), '--output-format', 'stream-json', '--verbose'
-    ])
-    const text = parseClaudeStream(stdout, { skillId: '', skillDir: ' ' }).finalText
-    augmented.push(...attachVariants(c, parseVariants(text)))
+    try {
+      const { stdout } = await execClaude([
+        '-p', buildAugmentPrompt(c.prompt, 2), '--output-format', 'stream-json', '--verbose'
+      ])
+      const text = parseClaudeStream(stdout, { skillId: '', skillDir: ' ' }).finalText
+      augmented.push(...attachVariants(c, parseVariants(text)))
+    } catch (e) {
+      // 일시적 실패(네트워크/CLI) 하나로 이미 증강한 나머지 변형까지 버리지 않는다 — per-item try/catch.
+      // 이 원본의 변형만 건너뛴다.
+      console.warn(`⚠ ${c.id}: 증강 실패 — ${(e as Error).message}`)
+    }
   }
 
   const cases = [...originals, ...augmented]
