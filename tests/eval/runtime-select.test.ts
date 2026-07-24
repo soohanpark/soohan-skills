@@ -1,6 +1,22 @@
 import { describe, it, expect } from 'vitest'
-import { buildRecordPlan, parseRuntimeFlag, RUNTIMES } from '../../scripts/eval/commands/record'
+import { buildRecordPlan, parseRecordFlags, parseRuntimeFlag, RUNTIMES } from '../../scripts/eval/commands/record'
 import type { EvalCase } from '../../scripts/eval/cases'
+
+describe('parseRecordFlags', () => {
+  it('extracts --runtime and --resume regardless of order', () => {
+    expect(parseRecordFlags(['--resume=2026-07-24T10-00--demo.write', '--runtime=codex']))
+      .toEqual({ runtime: '--runtime=codex', resume: '2026-07-24T10-00--demo.write' })
+    expect(parseRecordFlags(['--runtime=codex', '--resume=r1']).resume).toBe('r1')
+  })
+
+  it('accepts a bare runtime name', () => {
+    expect(parseRecordFlags(['codex'])).toEqual({ runtime: 'codex', resume: undefined })
+  })
+
+  it('returns neither when no flags are given', () => {
+    expect(parseRecordFlags([])).toEqual({ runtime: undefined, resume: undefined })
+  })
+})
 
 describe('parseRuntimeFlag', () => {
   it('reads an explicit --runtime=codex', () => {

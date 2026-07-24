@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadCases, type EvalCase } from '../cases.js'
 import type { ParsedRun } from '../parse.js'
@@ -59,6 +59,12 @@ export const RUNTIMES: Record<RuntimeName, RuntimeAdapter> = {
   }
 }
 
+// record 서브커맨드의 나머지 argv 에서 두 플래그를 골라낸다 (순수 — 테스트 대상).
+export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: string } => ({
+  runtime: flags.find(f => f.startsWith('--runtime=') || f === 'claude' || f === 'codex'),
+  resume: flags.find(f => f.startsWith('--resume='))?.slice('--resume='.length)
+})
+
 // "--runtime=codex" 또는 맨 이름 "codex" → 'codex'. 미지정·미인식 값은 감지된 런타임으로 되돌아간다.
 export const parseRuntimeFlag = (flag: string | undefined, detected: RuntimeName): RuntimeName => {
   if (!flag) return detected
@@ -89,16 +95,29 @@ const detectRuntime = (): RuntimeName => {
   return 'claude'
 }
 
-export const cmdRecord = async (skillArg: string, repoRoot: string, runtimeFlag?: string): Promise<void> => {
+export const cmdRecord = async (skillArg: string, repoRoot: string, flags: string[] = []): Promise<void> => {
   const skill = resolveSkill(skillArg, repoRoot)
   const file = casesFile(repoRoot, skill.id)
   if (!existsSync(file)) {
     console.error(`✗ ${file} 가 없습니다. 먼저 'pnpm eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
     process.exit(1)
   }
-  const runtime = RUNTIMES[parseRuntimeFlag(runtimeFlag, detectRuntime())]
+
+  const { runtime: runtimeFlag, resume } = parseRecordFlags(flags)
+  const runId = resume ?? runDirName(skill.id, new Date())
+  let runtimeName = parseRuntimeFlag(runtimeFlag, detectRuntime())
+  if (resume) {
+    const metaFile = join(evalsRoot(repoRoot), 'runs', runId, 'meta.json')
+    if (!existsSync(metaFile)) {
+      console.error(`✗ runs/${runId} 에 meta.json 이 없습니다 — --resume 은 기존 runId 만 받습니다.`)
+      process.exit(1)
+    }
+    // 재개는 원 실행의 런타임을 따른다 — 다른 파서로 기존 원본을 재해석하면 결과가 오염된다.
+    runtimeName = (JSON.parse(readFileSync(metaFile, 'utf8')) as { runtime?: RuntimeName }).runtime ?? 'claude'
+  }
+
+  const runtime = RUNTIMES[runtimeName]
   const plan = buildRecordPlan(loadCases(file), runtime.qualityVariants)
-  const runId = runDirName(skill.id, new Date())
   const res = await recordAll({
     plan, skill,
     outDir: join(evalsRoot(repoRoot), 'runs', runId),
