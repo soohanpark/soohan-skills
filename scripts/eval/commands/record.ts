@@ -103,7 +103,8 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, runtimeFlag?
     exec: runtime.exec,
     buildArgsFn: runtime.buildArgs,
     parse: runtime.parse,
-    repoSha: currentSha(repoRoot)
+    repoSha: currentSha(repoRoot),
+    runtime: runtime.name
   })
   console.log(`런타임: ${runtime.name}`)
   console.log(formatRecordSummary(res, runId))

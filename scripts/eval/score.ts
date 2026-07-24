@@ -122,3 +122,16 @@ export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore =>
 
   return { train, test, failures }
 }
+
+// forced 가 without 대비 토큰을 얼마나 더/덜 쓰는지 — 품질 델타의 일부로 기록한다 (설계 §7-4).
+// forced 실행이 하나도 없으면(아직 forced/without을 돌리지 않은 스킬 등) 비교할 게 없다.
+export const tokenDelta = (index: IndexEntry[]): { forced: number; without: number } | null => {
+  const okRunsOf = (variant: 'forced' | 'without') =>
+    index.filter(e => e.variant === variant && e.parsed.status === 'ok')
+
+  const forcedRuns = okRunsOf('forced')
+  if (forcedRuns.length === 0) return null
+
+  const sum = (runs: IndexEntry[]) => runs.reduce((total, e) => total + e.parsed.tokens, 0)
+  return { forced: sum(forcedRuns), without: sum(okRunsOf('without')) }
+}

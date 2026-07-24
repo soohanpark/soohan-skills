@@ -111,8 +111,9 @@ describe('isJudgeTrustworthy', () => {
 })
 
 describe('scorePairwise', () => {
+  // split 은 기본 'test' — 대부분의 기존 케이스는 test split 판정이 게이트에 그대로 반영되는지를 본다.
   const outcomes = (list: ('skill' | 'baseline' | 'tie')[]) =>
-    list.map((o, i) => ({ caseId: `q${i}`, outcome: o, discarded: false }))
+    list.map((o, i) => ({ caseId: `q${i}`, split: 'test' as const, outcome: o, discarded: false }))
 
   it('computes the win rate excluding ties', () => {
     const s = scorePairwise(outcomes(['skill', 'skill', 'skill', 'tie', 'baseline']))
@@ -123,7 +124,7 @@ describe('scorePairwise', () => {
   })
 
   it('excludes discarded verdicts from every count', () => {
-    const list = [...outcomes(['skill']), { caseId: 'x', outcome: 'skill' as const, discarded: true }]
+    const list = [...outcomes(['skill']), { caseId: 'x', split: 'test' as const, outcome: 'skill' as const, discarded: true }]
     const s = scorePairwise(list)
     expect(s.win).toBe(1)
     expect(s.discarded).toBe(1)
@@ -131,5 +132,18 @@ describe('scorePairwise', () => {
 
   it('returns a null rate when every pair tied — nothing to conclude', () => {
     expect(scorePairwise(outcomes(['tie', 'tie'])).rate).toBeNull()
+  })
+
+  // 설계 §7-3: 페어와이즈 승률은 트리거·규칙 축과 마찬가지로 test split 에서만 판정을 가른다.
+  // train 케이스가 합격/불합격을 뒤집으면 안 된다.
+  it('excludes a train-split pair from the rate — a train baseline win does not offset a test skill win', () => {
+    const list = [
+      { caseId: 'train-1', split: 'train' as const, outcome: 'baseline' as const, discarded: false },
+      { caseId: 'test-1', split: 'test' as const, outcome: 'skill' as const, discarded: false }
+    ]
+    const s = scorePairwise(list)
+    expect(s.rate).toBe(1)
+    expect(s.win).toBe(1)
+    expect(s.loss).toBe(0)
   })
 })

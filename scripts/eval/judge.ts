@@ -64,6 +64,7 @@ export type PairOutcome = 'skill' | 'baseline' | 'tie'
 
 export interface PairResult {
   caseId: string
+  split: 'train' | 'test'
   outcome: PairOutcome
   discarded: boolean
 }
@@ -76,8 +77,11 @@ export interface PairwiseScore {
   rate: number | null   // 무승부를 제외한 승률. 결정된 쌍이 없으면 null
 }
 
+// 트리거·규칙 축과 동일하게 test split 에서만 합격/불합격 게이트를 가른다 (설계 §7-3).
+// train 쌍은 verdicts 파일의 results[] 에는 그대로 남아 사람이 보되, 여기 집계에는 들어오지 않는다.
 export const scorePairwise = (results: PairResult[]): PairwiseScore => {
-  const kept = results.filter(r => !r.discarded)
+  const testResults = results.filter(r => r.split === 'test')
+  const kept = testResults.filter(r => !r.discarded)
   const win = kept.filter(r => r.outcome === 'skill').length
   const loss = kept.filter(r => r.outcome === 'baseline').length
   const tie = kept.filter(r => r.outcome === 'tie').length
@@ -85,7 +89,7 @@ export const scorePairwise = (results: PairResult[]): PairwiseScore => {
 
   return {
     win, loss, tie,
-    discarded: results.length - kept.length,
+    discarded: testResults.length - kept.length,
     rate: decided === 0 ? null : win / decided
   }
 }

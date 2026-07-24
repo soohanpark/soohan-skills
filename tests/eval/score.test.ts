@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures, scoreRules } from '../../scripts/eval/score'
+import { scoreTrigger, collectFailures, scoreRules, tokenDelta } from '../../scripts/eval/score'
 import type { EvalCase } from '../../scripts/eval/cases'
 import type { IndexEntry } from '../../scripts/eval/record'
 
@@ -197,5 +197,45 @@ describe('scoreRules', () => {
     expect(s.train).toEqual({ pass: 0, total: 1 })
     expect(s.test).toEqual({ pass: 0, total: 0 })
     expect(s.failures).toEqual([{ caseId: 'q3', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
+  })
+})
+
+describe('tokenDelta', () => {
+  const forced = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, over),
+    variant: 'forced'
+  })
+
+  const without = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, over),
+    variant: 'without'
+  })
+
+  it('returns null when there are no forced runs at all — nothing to show', () => {
+    expect(tokenDelta([without('q1', { tokens: 100 })])).toBeNull()
+  })
+
+  it('sums tokens across ok forced and ok without runs separately', () => {
+    const index = [
+      forced('q1', { tokens: 4000 }),
+      forced('q2', { tokens: 200 }),
+      without('q1', { tokens: 3000 }),
+      without('q2', { tokens: 100 })
+    ]
+    expect(tokenDelta(index)).toEqual({ forced: 4200, without: 3100 })
+  })
+
+  it('excludes errored runs from both sums', () => {
+    const index = [
+      forced('q1', { tokens: 4000 }),
+      forced('q2', { tokens: 999, status: 'error' }),
+      without('q1', { tokens: 3000, status: 'error' })
+    ]
+    expect(tokenDelta(index)).toEqual({ forced: 4000, without: 0 })
+  })
+
+  it('ignores with-variant runs entirely', () => {
+    const index = [entry('q1', 1, { tokens: 500 }), forced('q2', { tokens: 100 })]
+    expect(tokenDelta(index)).toEqual({ forced: 100, without: 0 })
   })
 })

@@ -49,6 +49,7 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
       const offTopic = !isRationaleOnTopic(first.rationale, criteria) || !isRationaleOnTopic(flipped.rationale, criteria)
       results.push({
         caseId: c.id,
+        split: c.split,
         outcome: resolvePair(first.verdict, flipped.verdict),
         discarded: offTopic
       })
@@ -56,7 +57,7 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
       // 일시적 실패(네트워크/CLI) 하나로 이미 판정한 나머지 쌍까지 버리지 않는다 — recordAll과 동일한
       // per-item try/catch. scorePairwise가 discarded 를 모든 집계에서 제외하므로 이 쌍만 빠진다.
       console.warn(`⚠ ${c.id}: 판정 실패 — ${(e as Error).message}`)
-      results.push({ caseId: c.id, outcome: 'tie', discarded: true })
+      results.push({ caseId: c.id, split: c.split, outcome: 'tie', discarded: true })
     }
   }
 

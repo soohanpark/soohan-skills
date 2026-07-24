@@ -13,6 +13,11 @@ export interface PlanItem {
   file: string
 }
 
+// ponytail: duplicated (not imported) from commands/record.ts's RuntimeName to dodge an import
+// cycle — commands/record.ts already imports recordAll/PlanItem from this file. Both are the
+// same 2-member string union; keep them in sync if a third runtime is ever added.
+export type RuntimeName = 'claude' | 'codex'
+
 export interface RunMeta {
   runId: string
   skillId: string
@@ -23,6 +28,7 @@ export interface RunMeta {
   casesHash: string
   startedAt: string
   degradedBaseline: boolean
+  runtime: RuntimeName
 }
 
 export interface IndexEntry {
@@ -85,6 +91,7 @@ export const recordAll = async (args: {
   exec: Exec
   degradedBaseline?: boolean
   repoSha?: string
+  runtime?: RuntimeName
   sleep?: (ms: number) => Promise<void>
   buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
   parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
@@ -166,7 +173,8 @@ export const recordAll = async (args: {
     repoSha: args.repoSha ?? '',
     casesHash: createHash('sha256').update(plan.map(p => p.caseId + p.prompt).join('\n')).digest('hex').slice(0, 12),
     startedAt: new Date().toISOString(),
-    degradedBaseline: args.degradedBaseline ?? true
+    degradedBaseline: args.degradedBaseline ?? true,
+    runtime: args.runtime ?? 'claude'
   }
 
   writeFileSync(join(outDir, 'index.json'), JSON.stringify(index, null, 2))

@@ -9,6 +9,17 @@ const PAIRWISE_FLOOR = 0.6
 export const pct = (n: number, d: number): string =>
   d === 0 ? '—' : `${Math.round((n / d) * 100)}%`
 
+// 큰 토큰 수를 사람이 읽기 좋게 줄인다 — 4200 → "4.2k", 999 → "999" 그대로.
+export const formatTokenCount = (n: number): string =>
+  n < 1000 ? `${n}` : `${(n / 1000).toFixed(1)}k`
+
+// (forced-without)/without 의 상대 변화율. without 이 0이면 나눌 수 없으니 대시로 표시한다.
+const tokenPctChange = (forced: number, without: number): string => {
+  if (without === 0) return '—'
+  const d = Math.round(((forced - without) / without) * 100)
+  return `${d > 0 ? '+' : ''}${d}%`
+}
+
 export const verdict = (
   score: TriggerScore,
   rules?: { pass: number; total: number },
@@ -45,8 +56,9 @@ export const formatReport = (args: {
   rules?: { pass: number; total: number }
   pairwise?: PairwiseScore
   judgeTrustworthy?: boolean
+  tokens?: { forced: number; without: number }
 }): string => {
-  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeTrustworthy } = args
+  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeTrustworthy, tokens } = args
   const v = verdict(score, rules, pairwise, judgeTrustworthy)
   const lines: string[] = []
 
@@ -60,7 +72,8 @@ export const formatReport = (args: {
 
   const showRules = Boolean(rules && rules.total > 0)
   const showPairwise = Boolean(pairwise && (pairwise.win + pairwise.loss + pairwise.tie) > 0)
-  if (showRules || showPairwise) {
+  const showTokens = Boolean(tokens && tokens.forced > 0)
+  if (showRules || showPairwise || showTokens) {
     lines.push('')
     lines.push('품질')
     if (rules && rules.total > 0) {
@@ -70,6 +83,9 @@ export const formatReport = (args: {
       const rate = pairwise.rate === null ? '—' : `${Math.round(pairwise.rate * 100)}%`
       lines.push(`  페어와이즈 승률     ${pairwise.win}승 ${pairwise.tie}무 ${pairwise.loss}패  ${rate}`)
       if (pairwise.discarded > 0) lines.push(`  (기준 밖 근거로 폐기된 판정 ${pairwise.discarded}건)`)
+    }
+    if (tokens && tokens.forced > 0) {
+      lines.push(`  토큰          forced ${formatTokenCount(tokens.forced)} / without ${formatTokenCount(tokens.without)}  (${tokenPctChange(tokens.forced, tokens.without)})`)
     }
   }
 
@@ -121,6 +137,17 @@ export const formatDiff = (
   lines.push(`  positive 발동률   ${pct(bp.hit, bp.total)} → ${pct(ap.hit, ap.total)}   ${signedPct(rate(bp.hit, bp.total), rate(ap.hit, ap.total))}`)
   lines.push(`  negative 오발동률  ${pct(bn.falseHit, bn.total)} → ${pct(an.falseHit, an.total)}   ${signedPct(rate(bn.falseHit, bn.total), rate(an.falseHit, an.total))}`)
   lines.push('')
+
+  // meta.runtime 은 이 필드가 생기기 전 실행에는 없다 — runs/ 는 gitignore 대상이라 마이그레이션
+  // 없이 읽는 쪽 기본값(claude)으로 방어한다.
+  const beforeRuntime = before.meta.runtime ?? 'claude'
+  const afterRuntime = after.meta.runtime ?? 'claude'
+
+  if (beforeRuntime !== afterRuntime) {
+    lines.push(`  ⚠ 서로 다른 런타임 비교입니다 (${beforeRuntime} → ${afterRuntime}) — 측정 조건 자체가 달라 이 비교는 신뢰할 수 없습니다.`)
+    lines.push('  Codex는 경쟁 스킬 목록을 보고하지 않으므로 경쟁 스킬 diff는 생략합니다.')
+    return lines.join('\n')
+  }
 
   // 점수 변화의 원인이 내 스킬인지 남의 스킬인지 가르는 유일한 근거 (설계 §4-2)
   const beforeSet = new Set(before.meta.loadedSkills)

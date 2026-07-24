@@ -1,17 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { formatDiff, formatReport, pct, verdict } from '../../scripts/eval/report'
+import { formatDiff, formatReport, formatTokenCount, pct, verdict } from '../../scripts/eval/report'
 import type { TriggerScore } from '../../scripts/eval/score'
 import type { PairwiseScore } from '../../scripts/eval/judge'
+import type { RunMeta } from '../../scripts/eval/record'
 
 const score: TriggerScore = {
   train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], nError: 0 },
   test: { positive: { hit: 12, total: 13 }, negative: { falseHit: 1, total: 12 }, unstable: ['y', 'z'], nError: 1 }
 }
 
-const meta = {
+const meta: RunMeta = {
   runId: '2026-07-23T14-02', skillId: 'demo:write', model: 'claude-opus-4-8',
   judgeModel: null, loadedSkills: new Array(77).fill('s'), repoSha: 'abc1234',
-  casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false
+  casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false,
+  runtime: 'claude'
 }
 
 const pairwise: PairwiseScore = { win: 5, loss: 0, tie: 1, discarded: 0, rate: 1 }
@@ -23,6 +25,18 @@ describe('pct', () => {
 
   it('returns a dash when the denominator is zero', () => {
     expect(pct(0, 0)).toBe('—')
+  })
+})
+
+describe('formatTokenCount', () => {
+  it('formats thousands with one decimal and a k suffix', () => {
+    expect(formatTokenCount(4200)).toBe('4.2k')
+    expect(formatTokenCount(3100)).toBe('3.1k')
+  })
+
+  it('leaves sub-1000 counts as plain integers', () => {
+    expect(formatTokenCount(999)).toBe('999')
+    expect(formatTokenCount(0)).toBe('0')
   })
 })
 
@@ -190,6 +204,38 @@ describe('formatReport with rules and pairwise together', () => {
   })
 })
 
+describe('formatReport with tokens', () => {
+  it('shows the token line with the forced/without split and the relative percent delta', () => {
+    const out = formatReport({ meta, score, failures: [], tokens: { forced: 4200, without: 3100 } })
+    expect(out).toContain('토큰')
+    expect(out).toContain('4.2k')
+    expect(out).toContain('3.1k')
+    expect(out).toContain('+35%')
+  })
+
+  it('opens a 품질 section for tokens alone, even with no rules or pairwise', () => {
+    const out = formatReport({ meta, score, failures: [], tokens: { forced: 4200, without: 3100 } })
+    expect(out).toContain('품질')
+  })
+
+  it('omits the token line when tokens is not passed', () => {
+    const out = formatReport({ meta, score, failures: [] })
+    expect(out).not.toContain('토큰')
+  })
+
+  it('omits the token line when forced is zero', () => {
+    const out = formatReport({ meta, score, failures: [], tokens: { forced: 0, without: 0 } })
+    expect(out).not.toContain('토큰')
+  })
+
+  it('shows a dash for the percent when without is zero, but still shows the raw counts', () => {
+    const out = formatReport({ meta, score, failures: [], tokens: { forced: 500, without: 0 } })
+    expect(out).toContain('토큰')
+    expect(out).toContain('500')
+    expect(out).toMatch(/토큰[^\n]*—/)
+  })
+})
+
 describe('formatDiff', () => {
   const before = {
     meta: { ...meta, runId: 'r1', loadedSkills: ['a', 'b'] },
@@ -236,5 +282,28 @@ describe('formatDiff', () => {
     const emptyBefore = { ...before, score: { ...before.score, test: { ...before.score.test, positive: { hit: 0, total: 0 } } } }
     const out = formatDiff(emptyBefore, after)
     expect(out).toContain('—')
+  })
+
+  it('warns loudly and skips the competing-skill diff when the two runs used different runtimes', () => {
+    const codexAfter = { ...after, meta: { ...after.meta, runtime: 'codex' as const, loadedSkills: [] } }
+    const out = formatDiff(before, codexAfter)
+    expect(out).toContain('⚠')
+    expect(out).toContain('claude')
+    expect(out).toContain('codex')
+    expect(out).not.toContain('추가된 경쟁 스킬')
+    expect(out).not.toContain('사라진 경쟁 스킬')
+    expect(out).not.toContain('경쟁 스킬 변화 없음')
+  })
+
+  it('treats a run missing meta.runtime as claude, for pre-migration runs that predate the field', () => {
+    const strip = (m: RunMeta): RunMeta => {
+      const { runtime, ...rest } = m
+      return rest as unknown as RunMeta
+    }
+    const legacyBefore = { ...before, meta: strip(before.meta) }
+    const legacyAfter = { ...after, meta: strip(after.meta) }
+    const out = formatDiff(legacyBefore, legacyAfter)
+    expect(out).not.toContain('⚠ 서로 다른 런타임')
+    expect(out).toContain('추가된 경쟁 스킬')
   })
 })

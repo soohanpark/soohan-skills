@@ -167,6 +167,20 @@ describe('recordAll', () => {
     const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
     expect(meta.repoSha).toBe('')
   })
+
+  it('defaults meta.runtime to claude when not supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.runtime).toBe('claude')
+  })
+
+  it('records an explicit runtime when supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, runtime: 'codex' })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.runtime).toBe('codex')
+  })
 })
 
 describe('recordAll runtime injection (defaults to claude)', () => {
