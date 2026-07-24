@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { formatReport, pct, verdict } from '../../scripts/eval/report'
 import type { TriggerScore } from '../../scripts/eval/score'
+import type { PairwiseScore } from '../../scripts/eval/judge'
 
 const score: TriggerScore = {
   train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], nError: 0 },
@@ -12,6 +13,8 @@ const meta = {
   judgeModel: null, loadedSkills: new Array(77).fill('s'), repoSha: 'abc1234',
   casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false
 }
+
+const pairwise: PairwiseScore = { win: 5, loss: 0, tie: 1, discarded: 0, rate: 1 }
 
 describe('pct', () => {
   it('formats a ratio as a rounded percentage', () => {
@@ -99,5 +102,42 @@ describe('formatReport', () => {
   it('omits the 품질 section when rules total is zero', () => {
     const out = formatReport({ meta, score, failures: [], rules: { pass: 0, total: 0 } })
     expect(out).not.toContain('품질')
+  })
+})
+
+describe('verdict with pairwise', () => {
+  it('passes when the skill wins at least 60% of decided pairs', () => {
+    expect(verdict(score, undefined, pairwise).passed).toBe(true)
+  })
+
+  it('fails when the win rate is near chance', () => {
+    const coin: PairwiseScore = { win: 3, loss: 3, tie: 0, discarded: 0, rate: 0.5 }
+    const v = verdict(score, undefined, coin)
+    expect(v.passed).toBe(false)
+    expect(v.reasons.join(' ')).toMatch(/존재 의미/)
+  })
+
+  it('ignores pairwise entirely when no pair was decided', () => {
+    const none: PairwiseScore = { win: 0, loss: 0, tie: 2, discarded: 0, rate: null }
+    expect(verdict(score, undefined, none).passed).toBe(true)
+  })
+})
+
+describe('formatReport with pairwise', () => {
+  it('shows the win/tie/loss line', () => {
+    const out = formatReport({ meta, score, failures: [], pairwise })
+    expect(out).toContain('5승 1무 0패')
+  })
+
+  it('shows a dash for the rate when every pair tied', () => {
+    const none: PairwiseScore = { win: 0, loss: 0, tie: 6, discarded: 0, rate: null }
+    const out = formatReport({ meta, score, failures: [], pairwise: none })
+    expect(out).toContain('0승 6무 0패  —')
+  })
+
+  it('notes discarded off-topic verdicts when present', () => {
+    const some: PairwiseScore = { win: 2, loss: 1, tie: 0, discarded: 3, rate: 2 / 3 }
+    const out = formatReport({ meta, score, failures: [], pairwise: some })
+    expect(out).toContain('기준 밖 근거로 폐기된 판정 3건')
   })
 })

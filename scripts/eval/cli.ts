@@ -1,6 +1,7 @@
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { cmdJudge } from './commands/judge.js'
 import { cmdRecord } from './commands/record.js'
 import { cmdReport } from './commands/report.js'
 import { evalsRoot } from './paths.js'
@@ -27,6 +28,7 @@ if (isMain()) {
   const [sub, arg] = process.argv.slice(2)
   if (sub === 'record' && arg) await cmdRecord(arg, repoRoot)
   else if (sub === 'report' && arg) cmdReport(arg, repoRoot)
+  else if (sub === 'judge' && arg) await cmdJudge(arg, repoRoot)
   else { usage(repoRoot); process.exit(1) }
 }
 /* v8 ignore stop */

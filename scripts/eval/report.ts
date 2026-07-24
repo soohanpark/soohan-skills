@@ -1,15 +1,18 @@
+import type { PairwiseScore } from './judge.js'
 import type { RunMeta } from './record.js'
 import type { Failure, TriggerScore } from './score.js'
 
 const POSITIVE_FLOOR = 0.9
 const NEGATIVE_CEILING = 0.1
+const PAIRWISE_FLOOR = 0.6
 
 export const pct = (n: number, d: number): string =>
   d === 0 ? '—' : `${Math.round((n / d) * 100)}%`
 
 export const verdict = (
   score: TriggerScore,
-  rules?: { pass: number; total: number }
+  rules?: { pass: number; total: number },
+  pairwise?: PairwiseScore
 ): { passed: boolean; reasons: string[] } => {
   const reasons: string[] = []
   const t = score.test
@@ -23,6 +26,11 @@ export const verdict = (
   if (rules && rules.total > 0 && rules.pass / rules.total < POSITIVE_FLOOR) {
     reasons.push(`must/must_not ${pct(rules.pass, rules.total)} < 90%`)
   }
+  if (pairwise && pairwise.rate !== null && pairwise.rate < PAIRWISE_FLOOR) {
+    reasons.push(
+      `페어와이즈 승률 ${Math.round(pairwise.rate * 100)}% < 60% — 스킬의 존재 의미를 재검토하세요`
+    )
+  }
 
   return { passed: reasons.length === 0, reasons }
 }
@@ -33,9 +41,10 @@ export const formatReport = (args: {
   failures: Failure[]
   hasBaselineRuns?: boolean
   rules?: { pass: number; total: number }
+  pairwise?: PairwiseScore
 }): string => {
-  const { meta, score, failures, hasBaselineRuns, rules } = args
-  const v = verdict(score, rules)
+  const { meta, score, failures, hasBaselineRuns, rules, pairwise } = args
+  const v = verdict(score, rules, pairwise)
   const lines: string[] = []
 
   lines.push(`skill-eval · ${meta.skillId} · ${meta.runId} · ${meta.model} · 경쟁 스킬 ${meta.loadedSkills.length}개`)
@@ -46,10 +55,19 @@ export const formatReport = (args: {
   lines.push(`  unstable (2:1)           ${score.test.unstable.length}건        ${score.train.unstable.length}건`)
   lines.push(`  실행 에러                ${score.test.nError}건        ${score.train.nError}건`)
 
-  if (rules && rules.total > 0) {
+  const showRules = Boolean(rules && rules.total > 0)
+  const showPairwise = Boolean(pairwise && (pairwise.win + pairwise.loss + pairwise.tie) > 0)
+  if (showRules || showPairwise) {
     lines.push('')
     lines.push('품질')
-    lines.push(`  must/must_not      ${rules.pass}/${rules.total}  ${pct(rules.pass, rules.total)}`)
+    if (rules && rules.total > 0) {
+      lines.push(`  must/must_not      ${rules.pass}/${rules.total}  ${pct(rules.pass, rules.total)}`)
+    }
+    if (pairwise && (pairwise.win + pairwise.loss + pairwise.tie) > 0) {
+      const rate = pairwise.rate === null ? '—' : `${Math.round(pairwise.rate * 100)}%`
+      lines.push(`  페어와이즈 승률     ${pairwise.win}승 ${pairwise.tie}무 ${pairwise.loss}패  ${rate}`)
+      if (pairwise.discarded > 0) lines.push(`  (기준 밖 근거로 폐기된 판정 ${pairwise.discarded}건)`)
+    }
   }
 
   if (meta.degradedBaseline && hasBaselineRuns) {
