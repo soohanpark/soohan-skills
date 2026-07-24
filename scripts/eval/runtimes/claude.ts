@@ -60,22 +60,35 @@ export const buildArgs = (
   return ['-p', `/${skill.id} ${prompt}`, ...STREAM_ARGS]
 }
 
-/* v8 ignore start */
-export const execClaude: Exec = (args) =>
+const DEFAULT_TIMEOUT_MS = 600_000
+
+// claude/codex 공용 spawn 래퍼. wall-clock 타임아웃이 핵심이다: without 변형은 턴 제한이
+// 없어 CLI 하나가 멈추면 런 전체가 무한 대기한다. 타임아웃은 파일을 안 남기고 reject 되므로
+// resume 이 나중에 재시도할 수 있다. 한도는 SKILL_EVAL_TIMEOUT_MS 로 조절한다.
+// ponytail: SIGTERM 한 방 — 두 CLI 모두 TERM 에 죽는다. 안 죽는 사례가 보이면 SIGKILL 에스컬레이션 추가.
+export const makeExec = (cli: string, timeoutMs?: number): Exec => (args) =>
   new Promise((resolve, reject) => {
+    const limit = timeoutMs ?? Number(process.env.SKILL_EVAL_TIMEOUT_MS ?? DEFAULT_TIMEOUT_MS)
     const started = Date.now()
-    const child = spawn('claude', args, {
+    const child = spawn(cli, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, SKILL_EVAL_DEPTH: String(Number(process.env.SKILL_EVAL_DEPTH ?? '0') + 1) }
     })
     let stdout = ''
     let stderr = ''
+    let timedOut = false
+    const timer = setTimeout(() => { timedOut = true; child.kill() }, limit)
     child.stdout.on('data', d => { stdout += d })
     child.stderr.on('data', d => { stderr += d })
-    child.on('error', reject)
+    child.on('error', (e) => { clearTimeout(timer); reject(e) })
     child.on('close', (exitCode) => {
+      clearTimeout(timer)
+      if (timedOut) {
+        reject(new Error(`${cli} timed out after ${limit}ms`))
+        return
+      }
       const outcome: ExecOutcome = { stdout, exitCode, stderr }
-      const failure = execFailureReason(outcome)
+      const failure = execFailureReason(outcome, cli)
       if (failure) {
         reject(new Error(failure))
       } else {
@@ -83,4 +96,5 @@ export const execClaude: Exec = (args) =>
       }
     })
   })
-/* v8 ignore stop */
+
+export const execClaude: Exec = makeExec('claude')

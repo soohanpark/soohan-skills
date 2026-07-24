@@ -88,6 +88,12 @@ describe('collectFailures', () => {
     expect(f[0].detail).toBe('api_error')
   })
 
+  it('reports a timed-out run with kind timeout, not error', () => {
+    const f = collectFailures([entry('p1', 1, { status: 'timeout', terminalReason: 'claude timed out after 600000ms' })], cases)
+    expect(f[0].kind).toBe('timeout')
+    expect(f[0].detail).toContain('timed out')
+  })
+
   it('returns [] when everything behaved', () => {
     const f = collectFailures([entry('p1', 1, { triggered: true }), entry('n1', 1)], cases)
     expect(f).toEqual([])

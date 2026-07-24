@@ -314,6 +314,18 @@ describe('retry', () => {
     expect(res.errorRate).toBe(1)
   })
 
+  it('records a timed-out exec with status timeout and does not retry it', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let n = 0
+    const exec: Exec = async () => { n += 1; throw new Error('claude timed out after 100ms') }
+    const res = await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep })
+    expect(n).toBe(1)
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index[0].parsed.status).toBe('timeout')
+    expect(existsSync(join(out, 'with--a--r1.jsonl'))).toBe(false)
+    expect(res.errorRate).toBe(1)
+  })
+
   it('calls the injected sleep exactly once on a single retry', async () => {
     const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
     let n = 0

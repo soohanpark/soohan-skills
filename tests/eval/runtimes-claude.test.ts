@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildArgs, execFailureReason } from '../../scripts/eval/runtimes/claude'
+import { buildArgs, execFailureReason, makeExec } from '../../scripts/eval/runtimes/claude'
 
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
 
@@ -56,6 +56,25 @@ describe('buildArgs', () => {
 
   it('does not cut turns in the forced variant', () => {
     expect(buildArgs('forced', skill, 'x')).not.toContain('--max-turns')
+  })
+})
+
+describe('makeExec', () => {
+  it('resolves with stdout and duration for a process that completes', async () => {
+    const exec = makeExec('echo', 5000)
+    const r = await exec(['hello'])
+    expect(r.stdout).toContain('hello')
+    expect(r.durationMs).toBeGreaterThanOrEqual(0)
+  })
+
+  it('kills a hung process and rejects naming the timeout', async () => {
+    const exec = makeExec('sleep', 100)
+    await expect(exec(['5'])).rejects.toThrow(/sleep timed out after 100ms/)
+  })
+
+  it('rejects with the cli name when the process produces no output', async () => {
+    const exec = makeExec('true', 5000)
+    await expect(exec([])).rejects.toThrow(/true produced no output/)
   })
 })
 

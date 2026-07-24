@@ -69,7 +69,8 @@ const errorRun = (reason: string): ParsedRun => ({
   triggered: false,
   skillReadFallback: false,
   finalText: '',
-  status: 'error',
+  // makeExec 의 wall-clock 킬만 이 메시지를 만든다 — 실행 실패 중 유일하게 timeout 으로 분류한다
+  status: /timed out after \d+ms/.test(reason) ? 'timeout' : 'error',
   terminalReason: reason,
   tokens: 0,
   costUsd: 0,

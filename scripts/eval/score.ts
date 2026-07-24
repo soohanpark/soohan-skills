@@ -78,7 +78,7 @@ export const collectFailures = (index: IndexEntry[], cases: EvalCase[]): Failure
       const detail = ok.length === 0
         ? errored[0].parsed.terminalReason
         : `${errored[0].parsed.terminalReason} (${errored.length}/${runs.length})`
-      failures.push({ caseId: c.id, kind: 'error', detail })
+      failures.push({ caseId: c.id, kind: errored[0].parsed.status === 'timeout' ? 'timeout' : 'error', detail })
     }
     if (ok.length === 0) continue // 전부 에러 — 판정 불가, scoreTrigger와 동일 기준 (설계 §10)
 
