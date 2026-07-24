@@ -93,6 +93,27 @@ describe('parseCodexStream', () => {
     expect(r.model).toBe('')
   })
 
+  it('does not false-positive on a directory whose name merely ends with the inner skill name', () => {
+    const raw = '{"type":"item.completed","item":{"type":"command_execution","command":"cat plugins/other/skills/rewrite/SKILL.md"}}\n' +
+                '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n'
+    const r = parseCodexStream(raw, opts)
+    expect(r.triggered).toBe(false)
+  })
+
+  it('does not false-positive on a directory whose name merely ends with the plugin name', () => {
+    const raw = '{"type":"item.completed","item":{"type":"command_execution","command":"cat ~/.codex/skills/not-blin-mr/SKILL.md"}}\n' +
+                '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n'
+    const r = parseCodexStream(raw, opts)
+    expect(r.triggered).toBe(false)
+  })
+
+  it('detects the install.sh multi-skill naming <plugin>-<skill>', () => {
+    const raw = '{"type":"item.completed","item":{"type":"command_execution","command":"cat ~/.codex/skills/blin-mr-write/SKILL.md"}}\n' +
+                '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n'
+    const r = parseCodexStream(raw, opts)
+    expect(r.triggered).toBe(true)
+  })
+
   it('also detects the invocation via the ~/.codex/skills/<plugin> symlink-style path', () => {
     const raw = '{"type":"item.completed","item":{"type":"command_execution","command":"cat ~/.codex/skills/blin-mr/SKILL.md"}}\n' +
                 '{"type":"turn.completed","usage":{"input_tokens":10,"output_tokens":5}}\n'

@@ -116,7 +116,15 @@ export const parseCodexStream = (raw: string, opts: ParseOptions): ParsedRun => 
   let done: Record<string, any> | undefined
 
   const skillDirName = opts.skillDir.split('/').filter(Boolean).pop() ?? ''
-  const codexSkillName = opts.skillId.split(':')[0]
+  const pluginName = opts.skillId.split(':')[0]
+  // Codex가 SKILL.md를 읽는 경로는 실행마다 다르다: 레포 상대경로(내부 스킬명 디렉터리),
+  // install.sh 설치명(<plugin> 또는 다중 스킬이면 <plugin>-<skill>). 셋 중 하나가
+  // "…/SKILL.md" 바로 앞 디렉터리명과 정확히 일치해야 발동으로 본다 — 이름 앞에 경계
+  // 문자를 요구해 접미사 충돌(cancel-run vs run)을 막는다.
+  const candidates = [...new Set([skillDirName, pluginName, `${pluginName}-${skillDirName}`])]
+    .filter(Boolean)
+    .map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const skillReadRe = new RegExp(`(^|[/'"\\s])(${candidates.join('|')})/SKILL\\.md`)
 
   for (const ev of events) {
     if (ev.type === DONE_EVENT) { done = ev; continue }
@@ -124,15 +132,9 @@ export const parseCodexStream = (raw: string, opts: ParseOptions): ParsedRun => 
     const item = ev.item
     if (!item) continue
 
-    if (item.type === 'command_execution' && typeof item.command === 'string') {
-      const cmd: string = item.command
-      // ponytail: Codex가 절대경로/레포 상대경로/~/.codex/skills 심링크 중 무엇으로
-      // SKILL.md를 읽는지 실행마다 다를 수 있어, skillDir의 마지막 세그먼트(내부 스킬명)
-      // 또는 plugin 이름 중 하나가 "…/SKILL.md" 바로 앞에 오면 발동으로 본다.
-      if (cmd.includes('SKILL.md') &&
-          (cmd.includes(`${skillDirName}/SKILL.md`) || cmd.includes(`${codexSkillName}/SKILL.md`))) {
-        triggered = true
-      }
+    if (item.type === 'command_execution' && typeof item.command === 'string' &&
+        skillReadRe.test(item.command)) {
+      triggered = true
     }
 
     if (item.type === 'agent_message' && typeof item.text === 'string' && item.text.trim()) {
