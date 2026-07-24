@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadCases } from '../cases.js'
+import { loadCases, type EvalCase } from '../cases.js'
 import { casesFile, evalsRoot, resolveSkill, runDirName } from '../paths.js'
 import { planRuns, recordAll } from '../record.js'
 import { execClaude } from '../runtimes/claude.js'
@@ -31,7 +31,14 @@ export const cmdRecord = async (skillArg: string, repoRoot: string): Promise<voi
     console.error(`✗ ${file} 가 없습니다. 먼저 'pnpm eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
     process.exit(1)
   }
-  const plan = planRuns(loadCases(file), { variants: ['with', 'forced', 'without'], repeats: 3 })
+  const cases = loadCases(file)
+  // 순수 트리거 케이스(must/must_not/qualitative 미선언)는 규칙/판정 대상이 될 수 없으므로
+  // forced/without 실행을 아예 계획하지 않는다 — 매 record 실행마다 불필요한 라이브 CLI 호출을 낳던 부분.
+  const isQuality = (c: EvalCase) => Boolean(c.must || c.must_not || c.qualitative)
+  const plan = [
+    ...planRuns(cases.filter(c => !isQuality(c)), { variants: ['with'], repeats: 3 }),
+    ...planRuns(cases.filter(isQuality), { variants: ['with', 'forced', 'without'], repeats: 3 })
+  ]
   const runId = runDirName(skill.id, new Date())
   const res = await recordAll({
     plan, skill,

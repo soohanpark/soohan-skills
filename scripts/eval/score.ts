@@ -97,12 +97,15 @@ export const collectFailures = (index: IndexEntry[], cases: EvalCase[]): Failure
 
 // forced 변형은 반복하지 않으므로 다수결이 필요 없다 — case당 forced 실행이 정상 종료했는지만 본다
 // (실행 에러는 트리거 축과 같은 원칙으로 품질 실패가 아니라 판정 불가로 분모에서 제외한다).
-export const scoreRules = (
-  index: IndexEntry[],
-  cases: EvalCase[]
-): { pass: number; total: number; failures: Failure[] } => {
-  let pass = 0
-  let total = 0
+// scoreTrigger와 마찬가지로 판정(pass/total)은 split별로 나눈다 — train에 맞춰 튜닝한 케이스가
+// 전체 합격/불합격을 뒤집지 못하게 막기 위함이다 (설계 §과적합 방지). failures 목록만은 두 split을
+// 합쳐서 보여준다 — 실패 사례를 숨기지 않되, 판정 자체는 test에서만 계산한다.
+export interface RuleTally { pass: number; total: number }
+export interface RuleScore { train: RuleTally; test: RuleTally; failures: Failure[] }
+
+export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore => {
+  const train: RuleTally = { pass: 0, total: 0 }
+  const test: RuleTally = { pass: 0, total: 0 }
   const failures: Failure[] = []
 
   for (const c of cases) {
@@ -110,11 +113,12 @@ export const scoreRules = (
     const run = index.find(e => e.variant === 'forced' && e.caseId === c.id)
     if (!run || run.parsed.status !== 'ok') continue
 
-    total += 1
+    const bucket = c.split === 'test' ? test : train
+    bucket.total += 1
     const r = checkRules(run.parsed.finalText, c)
-    if (r.passed) pass += 1
+    if (r.passed) bucket.pass += 1
     else failures.push({ caseId: c.id, kind: 'must', detail: r.failures.join(', ') })
   }
 
-  return { pass, total, failures }
+  return { train, test, failures }
 }
