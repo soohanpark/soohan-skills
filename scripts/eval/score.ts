@@ -111,7 +111,16 @@ export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore =>
   for (const c of cases) {
     if (!c.must && !c.must_not) continue
     const run = index.find(e => e.variant === 'forced' && e.caseId === c.id)
-    if (!run || run.parsed.status !== 'ok') continue
+    if (!run) continue
+    if (run.parsed.status !== 'ok') {
+      // 판정 불가 — 분모에서 빼되 실패 목록에는 남긴다. 조용히 빠지면 분모 축소가 안 보인다 (리뷰 R6)
+      failures.push({
+        caseId: c.id,
+        kind: run.parsed.status === 'timeout' ? 'timeout' : 'error',
+        detail: `forced: ${run.parsed.terminalReason}`
+      })
+      continue
+    }
 
     const bucket = c.split === 'test' ? test : train
     bucket.total += 1
@@ -124,8 +133,9 @@ export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore =>
 }
 
 // forced 가 without 대비 토큰을 얼마나 더/덜 쓰는지 — 품질 델타의 일부로 기록한다 (설계 §7-4).
-// forced 실행이 하나도 없으면(아직 forced/without을 돌리지 않은 스킬 등) 비교할 게 없다.
-export const tokenDelta = (index: IndexEntry[]): { forced: number; without: number } | null => {
+// 두 변형 모두 ok 인 케이스만 짝지어 합산한다 — 분모가 어긋나면 케이스 수 차이만으로 델타가
+// 부풀려진다 (리뷰 R5). 짝이 하나도 없으면(without 이 없는 codex 등) forced 합계만 보고한다.
+export const tokenDelta = (index: IndexEntry[]): { forced: number; without: number | null } | null => {
   const okRunsOf = (variant: 'forced' | 'without') =>
     index.filter(e => e.variant === variant && e.parsed.status === 'ok')
 
@@ -133,5 +143,32 @@ export const tokenDelta = (index: IndexEntry[]): { forced: number; without: numb
   if (forcedRuns.length === 0) return null
 
   const sum = (runs: IndexEntry[]) => runs.reduce((total, e) => total + e.parsed.tokens, 0)
-  return { forced: sum(forcedRuns), without: sum(okRunsOf('without')) }
+  const withoutByCase = new Map(okRunsOf('without').map(e => [e.caseId, e]))
+  const paired = forcedRuns.filter(e => withoutByCase.has(e.caseId))
+  if (paired.length === 0) return { forced: sum(forcedRuns), without: null }
+
+  return {
+    forced: sum(paired),
+    without: sum(paired.map(e => withoutByCase.get(e.caseId)!))
+  }
 }
+
+export interface ExecutionSummary {
+  ok: number
+  total: number
+  timeouts: number
+  errors: number
+  durationMs: number
+}
+
+// 전 변형을 합친 실행 요약 (설계 §5-2). 트리거 축 밖(forced/without)의 실행 실패가
+// 리포트에서 아예 안 보이는 것을 막는다 (리뷰 R6). durationMs 는 이번 호출에서 실제로
+// 실행된 항목의 합 — recordAll 은 순차 실행이라 벽시계 시간과 근사하고, 재개로 재구성된
+// 항목은 0 으로 들어온다.
+export const summarizeExecution = (index: IndexEntry[]): ExecutionSummary => ({
+  ok: index.filter(e => e.parsed.status === 'ok').length,
+  total: index.length,
+  timeouts: index.filter(e => e.parsed.status === 'timeout').length,
+  errors: index.filter(e => e.parsed.status === 'error').length,
+  durationMs: index.reduce((t, e) => t + e.durationMs, 0)
+})

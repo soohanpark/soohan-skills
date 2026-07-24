@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures, scoreRules, tokenDelta } from '../../scripts/eval/score'
+import { scoreTrigger, collectFailures, scoreRules, summarizeExecution, tokenDelta } from '../../scripts/eval/score'
 import type { EvalCase } from '../../scripts/eval/cases'
 import type { IndexEntry } from '../../scripts/eval/record'
 
@@ -178,12 +178,18 @@ describe('scoreRules', () => {
     expect(s.failures).toEqual([{ caseId: 'q1', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
   })
 
-  it('excludes an errored forced run from both pass and total, like the trigger axis', () => {
+  it('excludes an errored forced run from pass/total but lists it as a failure — the shrunken denominator must be visible', () => {
     const index = [forced('q1', { status: 'error', terminalReason: 'api_error' })]
     const s = scoreRules(index, ruleCases)
     expect(s.test.total).toBe(0)
     expect(s.test.pass).toBe(0)
-    expect(s.failures).toEqual([])
+    expect(s.failures).toEqual([{ caseId: 'q1', kind: 'error', detail: 'forced: api_error' }])
+  })
+
+  it('lists a timed-out forced run with kind timeout', () => {
+    const index = [forced('q1', { status: 'timeout', terminalReason: 'claude timed out after 600000ms' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.failures[0].kind).toBe('timeout')
   })
 
   it('excludes a case with no forced run at all', () => {
@@ -221,7 +227,7 @@ describe('tokenDelta', () => {
     expect(tokenDelta([without('q1', { tokens: 100 })])).toBeNull()
   })
 
-  it('sums tokens across ok forced and ok without runs separately', () => {
+  it('sums tokens across paired forced/without cases', () => {
     const index = [
       forced('q1', { tokens: 4000 }),
       forced('q2', { tokens: 200 }),
@@ -231,17 +237,42 @@ describe('tokenDelta', () => {
     expect(tokenDelta(index)).toEqual({ forced: 4200, without: 3100 })
   })
 
-  it('excludes errored runs from both sums', () => {
+  it('pairs by case — a case with only one ok side is excluded from both sums', () => {
+    const index = [
+      forced('q1', { tokens: 100 }),
+      forced('q2', { tokens: 200 }),   // without 짝이 없다 — 두 합계 모두에서 빠져야 델타가 안 부풀려진다
+      without('q1', { tokens: 50 }),
+      without('q3', { tokens: 999 })   // forced 짝이 없다
+    ]
+    expect(tokenDelta(index)).toEqual({ forced: 100, without: 50 })
+  })
+
+  it('excludes errored runs from pairing — an errored without leaves its forced unpaired', () => {
     const index = [
       forced('q1', { tokens: 4000 }),
       forced('q2', { tokens: 999, status: 'error' }),
       without('q1', { tokens: 3000, status: 'error' })
     ]
-    expect(tokenDelta(index)).toEqual({ forced: 4000, without: 0 })
+    expect(tokenDelta(index)).toEqual({ forced: 4000, without: null })
   })
 
-  it('ignores with-variant runs entirely', () => {
+  it('reports without as null when no baseline ran at all — codex-style runs', () => {
     const index = [entry('q1', 1, { tokens: 500 }), forced('q2', { tokens: 100 })]
-    expect(tokenDelta(index)).toEqual({ forced: 100, without: 0 })
+    expect(tokenDelta(index)).toEqual({ forced: 100, without: null })
+  })
+})
+
+describe('summarizeExecution', () => {
+  it('counts ok/timeout/error across all variants and sums durations', () => {
+    const index: IndexEntry[] = [
+      entry('p1', 1),
+      { ...entry('q1', 1, { status: 'timeout' }), variant: 'forced' },
+      { ...entry('q2', 1, { status: 'error' }), variant: 'without', durationMs: 5 }
+    ]
+    expect(summarizeExecution(index)).toEqual({ ok: 1, total: 3, timeouts: 1, errors: 1, durationMs: 7 })
+  })
+
+  it('is all zeros for an empty index', () => {
+    expect(summarizeExecution([])).toEqual({ ok: 0, total: 0, timeouts: 0, errors: 0, durationMs: 0 })
   })
 })

@@ -1,6 +1,6 @@
 import type { PairwiseScore } from './judge.js'
 import type { RunMeta } from './record.js'
-import type { Failure, TriggerScore } from './score.js'
+import type { ExecutionSummary, Failure, TriggerScore } from './score.js'
 
 const POSITIVE_FLOOR = 0.9
 const NEGATIVE_CEILING = 0.1
@@ -18,6 +18,11 @@ const tokenPctChange = (forced: number, without: number): string => {
   if (without === 0) return '—'
   const d = Math.round(((forced - without) / without) * 100)
   return `${d > 0 ? '+' : ''}${d}%`
+}
+
+export const formatDuration = (ms: number): string => {
+  const s = Math.round(ms / 1000)
+  return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`
 }
 
 export const verdict = (
@@ -56,13 +61,21 @@ export const formatReport = (args: {
   rules?: { pass: number; total: number }
   pairwise?: PairwiseScore
   judgeTrustworthy?: boolean
-  tokens?: { forced: number; without: number }
+  tokens?: { forced: number; without: number | null }
+  execution?: ExecutionSummary
 }): string => {
-  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeTrustworthy, tokens } = args
+  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeTrustworthy, tokens, execution } = args
   const v = verdict(score, rules, pairwise, judgeTrustworthy)
   const lines: string[] = []
 
   lines.push(`skill-eval · ${meta.skillId} · ${meta.runId} · ${meta.model} · 경쟁 스킬 ${meta.loadedSkills.length}개`)
+  if (execution && execution.total > 0) {
+    const parts = [`${execution.ok}/${execution.total} ok`]
+    if (execution.timeouts > 0) parts.push(`${execution.timeouts} timeout`)
+    if (execution.errors > 0) parts.push(`${execution.errors} error`)
+    if (execution.durationMs > 0) parts.push(formatDuration(execution.durationMs))
+    lines.push(`실행  ${parts.join(' · ')}`)
+  }
   lines.push('')
   lines.push('트리거                    test        train')
   lines.push(`  positive 발동률    ${score.test.positive.hit}/${score.test.positive.total}  ${pct(score.test.positive.hit, score.test.positive.total)}     ${score.train.positive.hit}/${score.train.positive.total}  ${pct(score.train.positive.hit, score.train.positive.total)}`)
@@ -85,7 +98,10 @@ export const formatReport = (args: {
       if (pairwise.discarded > 0) lines.push(`  (기준 밖 근거로 폐기된 판정 ${pairwise.discarded}건)`)
     }
     if (tokens && tokens.forced > 0) {
-      lines.push(`  토큰          forced ${formatTokenCount(tokens.forced)} / without ${formatTokenCount(tokens.without)}  (${tokenPctChange(tokens.forced, tokens.without)})`)
+      // without: null 은 baseline 자체가 없는 실행(codex 등) — 델타 없이 forced 사용량만 보여준다
+      lines.push(tokens.without === null
+        ? `  토큰          forced ${formatTokenCount(tokens.forced)}`
+        : `  토큰          forced ${formatTokenCount(tokens.forced)} / without ${formatTokenCount(tokens.without)}  (${tokenPctChange(tokens.forced, tokens.without)})`)
     }
   }
 

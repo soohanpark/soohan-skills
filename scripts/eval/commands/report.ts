@@ -5,7 +5,7 @@ import type { PairwiseScore } from '../judge.js'
 import { casesFile, evalsRoot, runDir } from '../paths.js'
 import type { IndexEntry, RunMeta } from '../record.js'
 import { formatDiff, formatReport } from '../report.js'
-import { collectFailures, scoreRules, scoreTrigger, tokenDelta } from '../score.js'
+import { collectFailures, scoreRules, scoreTrigger, summarizeExecution, tokenDelta } from '../score.js'
 
 /* v8 ignore start */
 export const loadRun = (repoRoot: string, runId: string) => {
@@ -37,7 +37,8 @@ export const cmdReport = (runId: string, repoRoot: string): void => {
     pairwise: pairwise?.score,
     judgeTrustworthy: pairwise?.judgeTrustworthy,
     hasBaselineRuns: index.some(e => e.variant === 'without'),
-    tokens: tokenDelta(index) ?? undefined
+    tokens: tokenDelta(index) ?? undefined,
+    execution: summarizeExecution(index)
   }))
 }
 

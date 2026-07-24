@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { formatDiff, formatReport, formatTokenCount, pct, verdict } from '../../scripts/eval/report'
+import { formatDiff, formatDuration, formatReport, formatTokenCount, pct, verdict } from '../../scripts/eval/report'
 import type { TriggerScore } from '../../scripts/eval/score'
 import type { PairwiseScore } from '../../scripts/eval/judge'
 import type { RunMeta } from '../../scripts/eval/record'
@@ -233,6 +233,41 @@ describe('formatReport with tokens', () => {
     expect(out).toContain('토큰')
     expect(out).toContain('500')
     expect(out).toMatch(/토큰[^\n]*—/)
+  })
+
+  it('shows only the forced total when no baseline ran — codex has no without variant', () => {
+    const out = formatReport({ meta, score, failures: [], tokens: { forced: 4200, without: null } })
+    expect(out).toMatch(/토큰[^\n]*4\.2k/)
+    expect(out).not.toMatch(/토큰[^\n]*without/)
+    expect(out).not.toMatch(/토큰[^\n]*—/)
+  })
+})
+
+describe('formatDuration', () => {
+  it('formats sub-minute durations in seconds', () => {
+    expect(formatDuration(45000)).toBe('45초')
+  })
+
+  it('formats minutes and seconds', () => {
+    expect(formatDuration(372000)).toBe('6분 12초')
+  })
+})
+
+describe('formatReport execution summary', () => {
+  it('shows the all-variant execution line with duration, omitting zero counts', () => {
+    const out = formatReport({
+      meta, score, failures: [],
+      execution: { ok: 41, total: 42, timeouts: 1, errors: 0, durationMs: 372000 }
+    })
+    expect(out).toContain('41/42 ok')
+    expect(out).toContain('1 timeout')
+    expect(out).toContain('6분 12초')
+    expect(out).not.toContain('0 error')
+  })
+
+  it('omits the execution line when not passed — old callers unaffected', () => {
+    const out = formatReport({ meta, score, failures: [] })
+    expect(out).not.toContain(' ok ·')
   })
 })
 
