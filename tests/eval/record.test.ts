@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isTransient, planRuns, recordAll } from '../../scripts/eval/record'
 import type { EvalCase } from '../../scripts/eval/cases'
+import type { ParsedRun } from '../../scripts/eval/parse'
 import type { Exec } from '../../scripts/eval/runtimes/claude'
 
 let out: string
@@ -165,6 +166,61 @@ describe('recordAll', () => {
     await recordAll({ plan, skill, outDir: out, exec: execOk })
     const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
     expect(meta.repoSha).toBe('')
+  })
+})
+
+describe('recordAll runtime injection (defaults to claude)', () => {
+  it('defaults to buildArgs (claude) when buildArgsFn is omitted', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let seenArgs: string[] = []
+    const exec: Exec = async (args) => { seenArgs = args; return { stdout: okStream, durationMs: 1 } }
+    await recordAll({ plan, skill, outDir: out, exec })
+    // claude buildArgs('with', ...) 는 -p <prompt> --max-turns 1 을 낳는다.
+    expect(seenArgs).toContain('-p')
+    expect(seenArgs).toContain('p-a')
+    expect(seenArgs).toEqual(expect.arrayContaining(['--max-turns', '1']))
+  })
+
+  it('uses an injected buildArgsFn instead of the claude default when supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let seenArgs: string[] = []
+    const exec: Exec = async (args) => { seenArgs = args; return { stdout: okStream, durationMs: 1 } }
+    const fakeBuildArgs = () => ['exec', '--json', 'custom']
+    await recordAll({ plan, skill, outDir: out, exec, buildArgsFn: fakeBuildArgs })
+    expect(seenArgs).toEqual(['exec', '--json', 'custom'])
+  })
+
+  it('defaults to parseClaudeStream when parse is omitted — a codex parser would not recognise this stream', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index[0].parsed.triggered).toBe(true)
+    expect(index[0].parsed.model).toBe('m')
+  })
+
+  it('uses an injected parse function instead of the claude default when supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const fakeParse = (): ParsedRun => ({
+      triggered: true, skillReadFallback: false, finalText: 'custom',
+      status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
+    })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index[0].parsed.finalText).toBe('custom')
+  })
+
+  it('uses the injected parse function on the skip-existing-file path too', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    mkdirSync(out, { recursive: true })
+    writeFileSync(join(out, 'with--a--r1.jsonl'), okStream)
+    const fakeParse = (): ParsedRun => ({
+      triggered: true, skillReadFallback: false, finalText: 'from-skip-path',
+      status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
+    })
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
+    expect(res.skipped).toBe(1)
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index[0].parsed.finalText).toBe('from-skip-path')
   })
 })
 

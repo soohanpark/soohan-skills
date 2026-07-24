@@ -25,11 +25,13 @@ export type Exec = (args: string[]) => Promise<{ stdout: string; durationMs: num
 // 종료 코드만으로는 판정할 수 없다: 트리거 축은 --max-turns 1 로 일부러 자르므로
 // 정상 측정도 exit 1 로 끝난다. 인증 실패·API 오류는 result 이벤트를 남기므로
 // 파서가 분류한다. 파서가 볼 것이 아무것도 없을 때만 실패로 올린다.
-export const execFailureReason = (outcome: ExecOutcome): string | null => {
+// cli 는 메시지에 찍힐 도구 이름이다 — execCodex 가 이 함수를 그대로 재사용하면서
+// "claude produced no output" 으로 오도되지 않도록 파라미터화했다 (Task 12).
+export const execFailureReason = (outcome: ExecOutcome, cli: string = 'claude'): string | null => {
   if (outcome.stdout.trim() !== '') return null
   const code = outcome.exitCode === null ? 'signal' : `exit ${outcome.exitCode}`
   const detail = outcome.stderr.trim() === '' ? '' : `: ${outcome.stderr.trim().split('\n').slice(-3).join(' ')}`
-  return `claude produced no output (${code})${detail}`
+  return `${cli} produced no output (${code})${detail}`
 }
 
 const STREAM_ARGS = ['--output-format', 'stream-json', '--verbose']

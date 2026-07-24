@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import type { Exec, SkillRef, Variant } from './claude.js'
+import { execFailureReason, type Exec, type ExecOutcome, type SkillRef, type Variant } from './claude.js'
 
 // 검증 결과 (2026-07-24, codex-cli 0.145.0):
 // - `codex exec --json`은 스킬 발동을 알리는 전용 이벤트가 없다. Codex는 스킬을
@@ -32,12 +32,23 @@ export const execCodex: Exec = (args) =>
       env: { ...process.env, SKILL_EVAL_DEPTH: String(Number(process.env.SKILL_EVAL_DEPTH ?? '0') + 1) }
     })
     let stdout = ''
+    let stderr = ''
     child.stdout.on('data', d => { stdout += d })
+    child.stderr.on('data', d => { stderr += d })
     child.on('error', reject)
-    // ponytail: exit code로 성공/실패를 가르지 않는다 — `--json`은 stdout 전용 스트림이라
-    // (codex exec --help 확인) turn.completed 유무만으로 parseCodexStream이 이미 error를
-    // 정확히 분류한다(no_completion_event). recordAll에 연결해 재시도/부분실패가 문제되면
-    // execClaude의 execFailureReason 패턴을 그대로 옮겨오면 된다.
-    child.on('close', () => resolve({ stdout, durationMs: Date.now() - started }))
+    child.on('close', (exitCode) => {
+      // execClaude와 같은 계약: exit code만으로 성공/실패를 가르지 않는다(트리거 축은
+      // 정상 측정도 nonzero exit로 끝날 수 있다) — turn.completed 유무는 parseCodexStream이
+      // 이미 분류한다(no_completion_event). stdout이 통째로 비어 있을 때(크래시·명령 없음
+      // 등 파서가 볼 것 자체가 없을 때)만 여기서 실패로 올린다. recordAll에 연결되는
+      // 경로이므로 Task 10의 "조용히 발동 안 함으로 기록되는" 리스크를 여기서 막는다.
+      const outcome: ExecOutcome = { stdout, exitCode, stderr }
+      const failure = execFailureReason(outcome, 'codex')
+      if (failure) {
+        reject(new Error(failure))
+      } else {
+        resolve({ stdout, durationMs: Date.now() - started })
+      }
+    })
   })
 /* v8 ignore stop */

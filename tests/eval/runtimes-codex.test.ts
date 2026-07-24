@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { buildCodexArgs } from '../../scripts/eval/runtimes/codex'
 import { parseCodexStream } from '../../scripts/eval/parse'
+import { execFailureReason } from '../../scripts/eval/runtimes/claude'
 
 // dir 은 paths.ts#resolveSkill 규약대로 SKILL.md 를 담은 디렉터리(내부 스킬명으로 끝남).
 const skill = { id: 'blin-mr:write', dir: '/tmp/plugins/blin-mr/skills/write' }
@@ -103,5 +104,27 @@ describe('parseCodexStream', () => {
     const r = parseCodexStream('{"type":"turn.completed"}', opts)
     expect(r.status).toBe('ok')
     expect(r.tokens).toBe(0)
+  })
+})
+
+// execCodex를 execClaude와 같은 에러 계약(execFailureReason)으로 강화한다 — 단, 메시지가
+// 실제로 실패한 CLI 이름(codex)을 가리켜야 한다. claude 하드코딩 메시지를 그대로 재사용하면
+// codex 크래시 로그에 "claude produced no output"이 찍혀 오도된다 (Task 12 강화).
+describe('execFailureReason reused for codex', () => {
+  it('names codex instead of claude in the failure message when given a cli override', () => {
+    const outcome = { stdout: '', exitCode: 1, stderr: '' }
+    const reason = execFailureReason(outcome, 'codex')
+    expect(reason).toContain('codex')
+    expect(reason).not.toContain('claude')
+  })
+
+  it('still defaults to claude when no cli override is given — existing callers unaffected', () => {
+    const outcome = { stdout: '', exitCode: 1, stderr: '' }
+    expect(execFailureReason(outcome)).toContain('claude')
+  })
+
+  it('returns null for codex too when stdout is non-empty, regardless of a nonzero exit code', () => {
+    const outcome = { stdout: '{"type":"turn.completed"}', exitCode: 1, stderr: '' }
+    expect(execFailureReason(outcome, 'codex')).toBeNull()
   })
 })

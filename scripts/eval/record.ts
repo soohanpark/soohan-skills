@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { EvalCase } from './cases.js'
 import { parseClaudeStream, type ParsedRun } from './parse.js'
-import { buildArgs, type Exec, type SkillRef, type Variant } from './runtimes/claude.js'
+import { buildArgs, type BuildOptions, type Exec, type SkillRef, type Variant } from './runtimes/claude.js'
 
 export interface PlanItem {
   caseId: string
@@ -86,6 +86,8 @@ export const recordAll = async (args: {
   degradedBaseline?: boolean
   repoSha?: string
   sleep?: (ms: number) => Promise<void>
+  buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
+  parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
 }): Promise<{ written: number; skipped: number; errorRate: number }> => {
   // skill-eval 을 forced 로 돌리면 그 안에서 다시 러너를 부른다. 한 단계에서 끊는다 (설계 §9)
   const depth = Number(process.env.SKILL_EVAL_DEPTH ?? '0')
@@ -95,6 +97,9 @@ export const recordAll = async (args: {
 
   const { plan, skill, outDir, exec } = args
   const sleep = args.sleep ?? defaultSleep
+  // 런타임 어댑터 주입 지점 — 기본은 claude. 기존 호출부는 둘 다 생략하므로 동작이 그대로다 (Task 12).
+  const buildArgsFn = args.buildArgsFn ?? buildArgs
+  const parse = args.parse ?? parseClaudeStream
   mkdirSync(outDir, { recursive: true })
 
   const index: IndexEntry[] = []
@@ -110,7 +115,7 @@ export const recordAll = async (args: {
       // 이번 호출분만 담아 이전 결과를 통째로 잃는다.
       skipped += 1
       const raw = readFileSync(target, 'utf8')
-      const parsed = parseClaudeStream(raw, { skillId: skill.id, skillDir: skill.dir })
+      const parsed = parse(raw, { skillId: skill.id, skillDir: skill.dir })
       if (parsed.status !== 'ok') errors += 1
       index.push({ ...item, durationMs: 0, parsed })
       continue
@@ -120,12 +125,12 @@ export const recordAll = async (args: {
       try {
         // Task 3 Step 5 실측: Read(<dir>/**) deny 패턴은 -p 모드에서 무시된다.
         // 따라서 degraded(Read/Grep/Glob 전면 차단)가 baseline 의 기본값이다.
-        const argv = buildArgs(item.variant, skill, item.prompt, {
+        const argv = buildArgsFn(item.variant, skill, item.prompt, {
           degradedBaseline: args.degradedBaseline ?? true
         })
         const { stdout, durationMs: ms } = await exec(argv)
         return {
-          parsed: parseClaudeStream(stdout, { skillId: skill.id, skillDir: skill.dir }),
+          parsed: parse(stdout, { skillId: skill.id, skillDir: skill.dir }),
           stdout,
           durationMs: ms
         }

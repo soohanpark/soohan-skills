@@ -2,9 +2,12 @@ import { execFileSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { loadCases, type EvalCase } from '../cases.js'
+import type { ParsedRun } from '../parse.js'
+import { parseClaudeStream, parseCodexStream } from '../parse.js'
 import { casesFile, evalsRoot, resolveSkill, runDirName } from '../paths.js'
 import { planRuns, recordAll, type PlanItem } from '../record.js'
-import { execClaude } from '../runtimes/claude.js'
+import { buildArgs, execClaude, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
+import { buildCodexArgs, execCodex } from '../runtimes/codex.js'
 
 // 실행 결과를 사람이 읽을 한 덩어리로 만든다 (순수 — 테스트 대상)
 export const formatRecordSummary = (res: { written: number; skipped: number; errorRate: number }, runId: string): string => {
@@ -17,10 +20,49 @@ export const formatRecordSummary = (res: { written: number; skipped: number; err
 // 품질 플래그(must/must_not/qualitative)가 붙은 케이스만 forced/without 을 받는다.
 export const isQualityCase = (c: EvalCase): boolean => Boolean(c.must || c.must_not || c.qualitative)
 
-export const buildRecordPlan = (cases: EvalCase[]): PlanItem[] => [
+export const buildRecordPlan = (
+  cases: EvalCase[],
+  qualityVariants: Variant[] = ['with', 'forced', 'without']
+): PlanItem[] => [
   ...planRuns(cases.filter(c => !isQualityCase(c)), { variants: ['with'], repeats: 3 }),
-  ...planRuns(cases.filter(isQualityCase), { variants: ['with', 'forced', 'without'], repeats: 3 })
+  ...planRuns(cases.filter(isQualityCase), { variants: qualityVariants, repeats: 3 })
 ]
+
+export type RuntimeName = 'claude' | 'codex'
+
+export interface RuntimeAdapter {
+  name: RuntimeName
+  exec: Exec
+  buildArgs: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
+  parse: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
+  qualityVariants: Variant[]
+}
+
+// codex 는 without(무개입) baseline 을 못 만든다 — CODEX_HOME 격리가 인증을 깨뜨린다
+// (실측, buildCodexArgs 참고). with/forced 축만 돈다.
+export const RUNTIMES: Record<RuntimeName, RuntimeAdapter> = {
+  claude: {
+    name: 'claude',
+    exec: execClaude,
+    buildArgs,
+    parse: parseClaudeStream,
+    qualityVariants: ['with', 'forced', 'without']
+  },
+  codex: {
+    name: 'codex',
+    exec: execCodex,
+    buildArgs: buildCodexArgs,
+    parse: parseCodexStream,
+    qualityVariants: ['with', 'forced']
+  }
+}
+
+// "--runtime=codex" 또는 맨 이름 "codex" → 'codex'. 미지정·미인식 값은 감지된 런타임으로 되돌아간다.
+export const parseRuntimeFlag = (flag: string | undefined, detected: RuntimeName): RuntimeName => {
+  if (!flag) return detected
+  const name = flag.startsWith('--runtime=') ? flag.slice('--runtime='.length) : flag
+  return name === 'claude' || name === 'codex' ? name : detected
+}
 
 /* v8 ignore start */
 // record.ts 는 프로세스를 실행하지 않는다. repoSha 는 CLI 계층인 여기서 공급한다.
@@ -32,21 +74,38 @@ const currentSha = (repoRoot: string): string => {
   }
 }
 
-export const cmdRecord = async (skillArg: string, repoRoot: string): Promise<void> => {
+// 설치된 CLI 를 감지한다 — 실제로 which 를 실행하므로 ignore 블록 안에 둔다. claude 를 우선한다.
+const detectRuntime = (): RuntimeName => {
+  for (const name of ['claude', 'codex'] as const) {
+    try {
+      execFileSync('which', [name], { stdio: 'ignore' })
+      return name
+    } catch {
+      // 설치돼 있지 않다 — 다음 후보로 넘어간다
+    }
+  }
+  return 'claude'
+}
+
+export const cmdRecord = async (skillArg: string, repoRoot: string, runtimeFlag?: string): Promise<void> => {
   const skill = resolveSkill(skillArg, repoRoot)
   const file = casesFile(repoRoot, skill.id)
   if (!existsSync(file)) {
     console.error(`✗ ${file} 가 없습니다. 먼저 'pnpm eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
     process.exit(1)
   }
-  const plan = buildRecordPlan(loadCases(file))
+  const runtime = RUNTIMES[parseRuntimeFlag(runtimeFlag, detectRuntime())]
+  const plan = buildRecordPlan(loadCases(file), runtime.qualityVariants)
   const runId = runDirName(skill.id, new Date())
   const res = await recordAll({
     plan, skill,
     outDir: join(evalsRoot(repoRoot), 'runs', runId),
-    exec: execClaude,
+    exec: runtime.exec,
+    buildArgsFn: runtime.buildArgs,
+    parse: runtime.parse,
     repoSha: currentSha(repoRoot)
   })
+  console.log(`런타임: ${runtime.name}`)
   console.log(formatRecordSummary(res, runId))
 }
 /* v8 ignore stop */
