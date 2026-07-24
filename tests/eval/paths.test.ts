@@ -23,6 +23,20 @@ describe('resolveSkill', () => {
   it('throws on an id without a colon', () => {
     expect(() => resolveSkill('demo', '/repo')).toThrow(/plugin:skill/)
   })
+
+  it('accepts a path to the SKILL.md file itself', () => {
+    const r = resolveSkill('/abs/plugins/demo/skills/write/SKILL.md', '/repo')
+    expect(r.id).toBe('demo:write')
+    expect(r.dir).toBe('/abs/plugins/demo/skills/write')
+  })
+
+  it('rejects a path without a <plugin>/skills/<skill> shape', () => {
+    expect(() => resolveSkill('/somewhere/random-dir', '/repo')).toThrow(/skills/)
+  })
+
+  it('rejects a path whose plugin segment is a hidden directory like ~/.codex/skills/<name>', () => {
+    expect(() => resolveSkill('/Users/x/.codex/skills/blin-mr', '/repo')).toThrow(/plugin/)
+  })
 })
 
 describe('slug', () => {

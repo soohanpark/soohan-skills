@@ -1,12 +1,17 @@
 import { join } from 'node:path'
 import type { SkillRef } from './runtimes/claude.js'
 
-// "plugin:skill" 또는 SKILL.md 가 든 디렉터리 경로를 받는다.
+// "plugin:skill", SKILL.md 가 든 디렉터리 경로, 또는 SKILL.md 파일 경로 자체를 받는다.
 export const resolveSkill = (arg: string, repoRoot: string): SkillRef => {
   if (arg.includes('/')) {
-    const dir = arg.replace(/\/+$/, '')
+    const dir = arg.replace(/\/+$/, '').replace(/\/SKILL\.md$/, '')
     const parts = dir.split('/')
-    return { id: `${parts.at(-3)}:${parts.at(-1)}`, dir }
+    const [plugin, skills, skill] = [parts.at(-3), parts.at(-2), parts.at(-1)]
+    // 모양 검증 없이는 ~/.codex/skills/x 가 ".codex:x" 같은 유령 id 를 만든다 (리뷰 R11)
+    if (skills !== 'skills' || !plugin || plugin.startsWith('.')) {
+      throw new Error(`"${arg}" 에서 plugin 이름을 찾을 수 없습니다 — <plugin>/skills/<skill> 모양의 경로가 필요합니다.`)
+    }
+    return { id: `${plugin}:${skill}`, dir }
   }
   if (!arg.includes(':')) {
     throw new Error(`"${arg}" 는 plugin:skill 형식이 아닙니다. 경로를 주려면 슬래시를 포함하세요.`)

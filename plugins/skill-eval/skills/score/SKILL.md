@@ -13,7 +13,7 @@ description: Use when the user wants to measure whether a skill actually works �
 
 ```bash
 pnpm eval mine   <plugin:skill>   # 로그 채굴 → cases.draft.jsonl
-pnpm eval record <plugin:skill>   # 실행 → evals/runs/<runId>/
+pnpm eval record <plugin:skill>   # 실행 → evals/runs/<runId>/  (--runtime=claude|codex, 중단됐으면 --resume=<runId>)
 pnpm eval judge  <runId>          # 페어와이즈 판정
 pnpm eval report <runId>          # 표 출력
 ```

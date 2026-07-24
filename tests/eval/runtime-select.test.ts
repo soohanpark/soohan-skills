@@ -31,8 +31,8 @@ describe('parseRuntimeFlag', () => {
     expect(parseRuntimeFlag(undefined, 'claude')).toBe('claude')
   })
 
-  it('falls back to detected for an unknown value rather than throwing', () => {
-    expect(parseRuntimeFlag('--runtime=gemini', 'codex')).toBe('codex')
+  it('throws on an unrecognized explicit value — a typo must not silently run the wrong runtime for minutes', () => {
+    expect(() => parseRuntimeFlag('--runtime=gemini', 'codex')).toThrow(/gemini/)
   })
 
   it('reads an explicit --runtime=claude even when something else was detected', () => {

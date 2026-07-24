@@ -35,7 +35,7 @@ Codex · Gemini · Kimi CLI (레포 루트에서):
 ## 동작
 
 1. `pnpm eval mine <skill>` — 세션 로그에서 케이스 채굴 (사람이 검토 후 승격)
-2. `pnpm eval record <skill>` — 실제 실행, `evals/runs/<runId>/`에 원본 적재
+2. `pnpm eval record <skill>` — 실제 실행, `evals/runs/<runId>/`에 원본 적재 (`--runtime=claude|codex`, 중단 시 `--resume=<runId>`)
 3. `pnpm eval judge <runId>` — 페어와이즈 블라인드 심판
 4. `pnpm eval report <runId>` — 표 출력
 

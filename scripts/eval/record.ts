@@ -13,9 +13,6 @@ export interface PlanItem {
   file: string
 }
 
-// ponytail: duplicated (not imported) from commands/record.ts's RuntimeName to dodge an import
-// cycle — commands/record.ts already imports recordAll/PlanItem from this file. Both are the
-// same 2-member string union; keep them in sync if a third runtime is ever added.
 export type RuntimeName = 'claude' | 'codex'
 
 export interface RunMeta {

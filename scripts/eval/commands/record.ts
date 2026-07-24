@@ -5,7 +5,7 @@ import { loadCases, type EvalCase } from '../cases.js'
 import type { ParsedRun } from '../parse.js'
 import { parseClaudeStream, parseCodexStream } from '../parse.js'
 import { casesFile, evalsRoot, resolveSkill, runDirName } from '../paths.js'
-import { planRuns, recordAll, type PlanItem } from '../record.js'
+import { planRuns, recordAll, type PlanItem, type RuntimeName } from '../record.js'
 import { buildArgs, execClaude, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
 import { buildCodexArgs, execCodex } from '../runtimes/codex.js'
 
@@ -27,10 +27,6 @@ export const buildRecordPlan = (
   ...planRuns(cases.filter(c => !isQualityCase(c)), { variants: ['with'], repeats: 3 }),
   ...planRuns(cases.filter(isQualityCase), { variants: qualityVariants, repeats: 3 })
 ]
-
-// ponytail: also duplicated as record.ts's own RuntimeName (to dodge the import cycle back to
-// here) — keep both in sync if a third runtime is ever added.
-export type RuntimeName = 'claude' | 'codex'
 
 export interface RuntimeAdapter {
   name: RuntimeName
@@ -65,11 +61,15 @@ export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: 
   resume: flags.find(f => f.startsWith('--resume='))?.slice('--resume='.length)
 })
 
-// "--runtime=codex" 또는 맨 이름 "codex" → 'codex'. 미지정·미인식 값은 감지된 런타임으로 되돌아간다.
+// "--runtime=codex" 또는 맨 이름 "codex" → 'codex'. 미지정이면 감지된 런타임.
+// 명시했는데 못 알아듣는 값이면 던진다 — 오타 난 채 수 분짜리 레코딩이 도는 걸 막는다 (리뷰 R12).
 export const parseRuntimeFlag = (flag: string | undefined, detected: RuntimeName): RuntimeName => {
   if (!flag) return detected
   const name = flag.startsWith('--runtime=') ? flag.slice('--runtime='.length) : flag
-  return name === 'claude' || name === 'codex' ? name : detected
+  if (name !== 'claude' && name !== 'codex') {
+    throw new Error(`알 수 없는 런타임 "${name}" — claude 또는 codex 만 지원합니다.`)
+  }
+  return name
 }
 
 /* v8 ignore start */
