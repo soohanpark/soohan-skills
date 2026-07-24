@@ -41,25 +41,38 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
     }
 
     const criteria = deriveCriteria(c, description.trim())
-    // 1회차: forced=A, 2회차: 순서를 뒤집어 forced=B
-    const first = await askJudge(criteria, forced.parsed.finalText, without.parsed.finalText)
-    const flipped = await askJudge(criteria, without.parsed.finalText, forced.parsed.finalText)
+    try {
+      // 1회차: forced=A, 2회차: 순서를 뒤집어 forced=B
+      const first = await askJudge(criteria, forced.parsed.finalText, without.parsed.finalText)
+      const flipped = await askJudge(criteria, without.parsed.finalText, forced.parsed.finalText)
 
-    const offTopic = !isRationaleOnTopic(first.rationale, criteria) || !isRationaleOnTopic(flipped.rationale, criteria)
-    results.push({
-      caseId: c.id,
-      outcome: resolvePair(first.verdict, flipped.verdict),
-      discarded: offTopic
-    })
+      const offTopic = !isRationaleOnTopic(first.rationale, criteria) || !isRationaleOnTopic(flipped.rationale, criteria)
+      results.push({
+        caseId: c.id,
+        outcome: resolvePair(first.verdict, flipped.verdict),
+        discarded: offTopic
+      })
+    } catch (e) {
+      // 일시적 실패(네트워크/CLI) 하나로 이미 판정한 나머지 쌍까지 버리지 않는다 — recordAll과 동일한
+      // per-item try/catch. scorePairwise가 discarded 를 모든 집계에서 제외하므로 이 쌍만 빠진다.
+      console.warn(`⚠ ${c.id}: 판정 실패 — ${(e as Error).message}`)
+      results.push({ caseId: c.id, outcome: 'tie', discarded: true })
+    }
   }
 
   // A=A sanity check — 동일 출력을 양쪽에 넣었을 때 무승부가 아니면 이 심판은 못 믿는다 (설계 §7-2)
   const sample = index.find(e => e.variant === 'forced' && e.parsed.status === 'ok')
   let judgeTrustworthy = true
   if (sample) {
-    const sanity = await askJudge('출력이 기준을 충족하는가', sample.parsed.finalText, sample.parsed.finalText)
-    judgeTrustworthy = isJudgeTrustworthy(sanity)
-    if (!judgeTrustworthy) console.error('⚠ 심판 신뢰성 실패 — 동일 출력에 우열을 매겼습니다. 정성 판정 결과를 신뢰하지 마세요.')
+    try {
+      const sanity = await askJudge('출력이 기준을 충족하는가', sample.parsed.finalText, sample.parsed.finalText)
+      judgeTrustworthy = isJudgeTrustworthy(sanity)
+      if (!judgeTrustworthy) console.error('⚠ 심판 신뢰성 실패 — 동일 출력에 우열을 매겼습니다. 정성 판정 결과를 신뢰하지 마세요.')
+    } catch (e) {
+      // 자가진단 자체가 실패하면 검증할 방법이 없다 — 신뢰할 수 있다고 가정하지 않는다.
+      judgeTrustworthy = false
+      console.warn(`⚠ 심판 신뢰성 자가진단 실패 — ${(e as Error).message}. 정성 판정 결과를 신뢰하지 마세요.`)
+    }
   }
 
   const verdictFile = join(EVALS, 'verdicts', `${runId}.json`)
@@ -68,8 +81,7 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
     runId, judgeModel: 'claude', judgeTrustworthy, results, score: scorePairwise(results)
   }, null, 2))
 
-  meta.judgeModel = 'claude'
-  writeFileSync(join(dir, 'meta.json'), JSON.stringify(meta, null, 2))
+  writeFileSync(join(dir, 'meta.json'), JSON.stringify({ ...meta, judgeModel: 'claude' }, null, 2))
 
   console.log(`판정 완료: ${results.length}쌍 → ${verdictFile}`)
 }

@@ -123,6 +123,27 @@ describe('verdict with pairwise', () => {
   })
 })
 
+describe('verdict with judgeTrustworthy', () => {
+  const losing: PairwiseScore = { win: 1, loss: 5, tie: 0, discarded: 0, rate: 1 / 6 }
+
+  it('does not add a pairwise-driven fail reason when the judge failed its self-check', () => {
+    const v = verdict(score, undefined, losing, false)
+    expect(v.passed).toBe(true)
+    expect(v.reasons.join(' ')).not.toMatch(/존재 의미/)
+  })
+
+  it('still applies the pairwise threshold when judgeTrustworthy is explicitly true', () => {
+    const v = verdict(score, undefined, losing, true)
+    expect(v.passed).toBe(false)
+    expect(v.reasons.join(' ')).toMatch(/존재 의미/)
+  })
+
+  it('still applies the pairwise threshold when judgeTrustworthy is omitted', () => {
+    const v = verdict(score, undefined, losing)
+    expect(v.passed).toBe(false)
+  })
+})
+
 describe('formatReport with pairwise', () => {
   it('shows the win/tie/loss line', () => {
     const out = formatReport({ meta, score, failures: [], pairwise })
@@ -139,5 +160,32 @@ describe('formatReport with pairwise', () => {
     const some: PairwiseScore = { win: 2, loss: 1, tie: 0, discarded: 3, rate: 2 / 3 }
     const out = formatReport({ meta, score, failures: [], pairwise: some })
     expect(out).toContain('기준 밖 근거로 폐기된 판정 3건')
+  })
+})
+
+describe('formatReport with judgeTrustworthy', () => {
+  it('warns when a pairwise result is present and the judge failed its self-check', () => {
+    const out = formatReport({ meta, score, failures: [], pairwise, judgeTrustworthy: false })
+    expect(out).toContain('심판 신뢰성')
+  })
+
+  it('does not warn when judgeTrustworthy is true with the same pairwise data', () => {
+    const out = formatReport({ meta, score, failures: [], pairwise, judgeTrustworthy: true })
+    expect(out).not.toContain('심판 신뢰성')
+  })
+
+  it('does not warn when judgeTrustworthy is omitted with the same pairwise data', () => {
+    const out = formatReport({ meta, score, failures: [], pairwise })
+    expect(out).not.toContain('심판 신뢰성')
+  })
+})
+
+describe('formatReport with rules and pairwise together', () => {
+  it('renders a single 품질 header with both the must/must_not and pairwise sub-lines', () => {
+    const out = formatReport({ meta, score, failures: [], rules: { pass: 9, total: 10 }, pairwise })
+    expect(out.match(/품질/g)?.length).toBe(1)
+    expect(out).toContain('must/must_not')
+    expect(out).toContain('9/10')
+    expect(out).toContain('5승 1무 0패')
   })
 })

@@ -12,7 +12,8 @@ export const pct = (n: number, d: number): string =>
 export const verdict = (
   score: TriggerScore,
   rules?: { pass: number; total: number },
-  pairwise?: PairwiseScore
+  pairwise?: PairwiseScore,
+  judgeTrustworthy = true
 ): { passed: boolean; reasons: string[] } => {
   const reasons: string[] = []
   const t = score.test
@@ -26,7 +27,8 @@ export const verdict = (
   if (rules && rules.total > 0 && rules.pass / rules.total < POSITIVE_FLOOR) {
     reasons.push(`must/must_not ${pct(rules.pass, rules.total)} < 90%`)
   }
-  if (pairwise && pairwise.rate !== null && pairwise.rate < PAIRWISE_FLOOR) {
+  // 심판이 자가진단(A=A)을 통과하지 못했다면 정성 축은 판정 불능이다 — 합격도 불합격도 시키지 않는다.
+  if (judgeTrustworthy !== false && pairwise && pairwise.rate !== null && pairwise.rate < PAIRWISE_FLOOR) {
     reasons.push(
       `페어와이즈 승률 ${Math.round(pairwise.rate * 100)}% < 60% — 스킬의 존재 의미를 재검토하세요`
     )
@@ -42,9 +44,10 @@ export const formatReport = (args: {
   hasBaselineRuns?: boolean
   rules?: { pass: number; total: number }
   pairwise?: PairwiseScore
+  judgeTrustworthy?: boolean
 }): string => {
-  const { meta, score, failures, hasBaselineRuns, rules, pairwise } = args
-  const v = verdict(score, rules, pairwise)
+  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeTrustworthy } = args
+  const v = verdict(score, rules, pairwise, judgeTrustworthy)
   const lines: string[] = []
 
   lines.push(`skill-eval · ${meta.skillId} · ${meta.runId} · ${meta.model} · 경쟁 스킬 ${meta.loadedSkills.length}개`)
@@ -68,6 +71,11 @@ export const formatReport = (args: {
       lines.push(`  페어와이즈 승률     ${pairwise.win}승 ${pairwise.tie}무 ${pairwise.loss}패  ${rate}`)
       if (pairwise.discarded > 0) lines.push(`  (기준 밖 근거로 폐기된 판정 ${pairwise.discarded}건)`)
     }
+  }
+
+  if (pairwise && judgeTrustworthy === false) {
+    lines.push('')
+    lines.push('⚠ 심판 신뢰성 실패 — 정성 판정 심판이 자가진단(A=A 검사)을 통과하지 못했습니다. 페어와이즈 결과를 신뢰하지 마세요.')
   }
 
   if (meta.degradedBaseline && hasBaselineRuns) {

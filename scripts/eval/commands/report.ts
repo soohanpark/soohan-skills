@@ -19,20 +19,23 @@ export const loadRun = (repoRoot: string, runId: string) => {
 // judge 서브커맨드가 만든 evals/verdicts/<runId>.json 이 있으면 읽는다.
 // 아직 judge 를 돌리지 않은 실행은 파일이 없다 — 그 경우 undefined 를 돌려주고
 // formatReport 가 품질 축의 페어와이즈 줄을 그냥 생략하게 둔다.
-const loadPairwise = (repoRoot: string, runId: string): PairwiseScore | undefined => {
+const loadPairwise = (repoRoot: string, runId: string): { score: PairwiseScore; judgeTrustworthy: boolean } | undefined => {
   const file = join(evalsRoot(repoRoot), 'verdicts', `${runId}.json`)
   if (!existsSync(file)) return undefined
-  return (JSON.parse(readFileSync(file, 'utf8')) as { score: PairwiseScore }).score
+  const data = JSON.parse(readFileSync(file, 'utf8')) as { score: PairwiseScore; judgeTrustworthy: boolean }
+  return { score: data.score, judgeTrustworthy: data.judgeTrustworthy }
 }
 
 export const cmdReport = (runId: string, repoRoot: string): void => {
   const { meta, index, cases, score } = loadRun(repoRoot, runId)
   const rules = scoreRules(index, cases)
+  const pairwise = loadPairwise(repoRoot, runId)
   console.log(formatReport({
     meta, score,
     failures: [...collectFailures(index, cases), ...rules.failures],
     rules: rules.test,
-    pairwise: loadPairwise(repoRoot, runId),
+    pairwise: pairwise?.score,
+    judgeTrustworthy: pairwise?.judgeTrustworthy,
     hasBaselineRuns: index.some(e => e.variant === 'without')
   }))
 }
