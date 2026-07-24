@@ -28,6 +28,8 @@ export const buildRecordPlan = (
   ...planRuns(cases.filter(isQualityCase), { variants: qualityVariants, repeats: 3 })
 ]
 
+// ponytail: also duplicated as record.ts's own RuntimeName (to dodge the import cycle back to
+// here) — keep both in sync if a third runtime is ever added.
 export type RuntimeName = 'claude' | 'codex'
 
 export interface RuntimeAdapter {
