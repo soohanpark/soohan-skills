@@ -25,8 +25,9 @@ export const formatReport = (args: {
   meta: RunMeta
   score: TriggerScore
   failures: Failure[]
+  hasBaselineRuns?: boolean
 }): string => {
-  const { meta, score, failures } = args
+  const { meta, score, failures, hasBaselineRuns } = args
   const v = verdict(score)
   const lines: string[] = []
 
@@ -38,7 +39,7 @@ export const formatReport = (args: {
   lines.push(`  unstable (2:1)           ${score.test.unstable.length}건        ${score.train.unstable.length}건`)
   lines.push(`  실행 에러                ${score.test.nError}건        ${score.train.nError}건`)
 
-  if (meta.degradedBaseline) {
+  if (meta.degradedBaseline && hasBaselineRuns) {
     lines.push('')
     lines.push('⚠ baseline 저하 — Read/Grep/Glob를 전면 차단해 실행했습니다. 파일을 읽는 스킬이면 품질 델타가 과대평가됩니다.')
   }

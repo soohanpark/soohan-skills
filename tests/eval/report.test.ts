@@ -60,8 +60,13 @@ describe('formatReport', () => {
     expect(out).toContain('오발동')
   })
 
-  it('warns when the baseline was degraded', () => {
-    const out = formatReport({ meta: { ...meta, degradedBaseline: true }, score, failures: [] })
+  it('warns when the baseline was degraded and baseline runs actually happened', () => {
+    const out = formatReport({ meta: { ...meta, degradedBaseline: true }, score, failures: [], hasBaselineRuns: true })
     expect(out).toContain('baseline 저하')
+  })
+
+  it('does not warn about a degraded baseline when no baseline runs happened', () => {
+    const out = formatReport({ meta: { ...meta, degradedBaseline: true }, score, failures: [] })
+    expect(out).not.toContain('baseline 저하')
   })
 })

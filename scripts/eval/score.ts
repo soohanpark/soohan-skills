@@ -64,14 +64,19 @@ export const collectFailures = (index: IndexEntry[], cases: EvalCase[]): Failure
     const runs = triggerRunsFor(index, c.id)
     if (runs.length === 0) continue
 
-    const errored = runs.find(r => r.parsed.status !== 'ok')
-    if (errored) {
-      failures.push({ caseId: c.id, kind: 'error', detail: errored.parsed.terminalReason })
-      continue
-    }
+    const ok = runs.filter(r => r.parsed.status === 'ok')
+    const errored = runs.filter(r => r.parsed.status !== 'ok')
 
-    const fired = runs.filter(r => r.parsed.triggered).length
-    const majority = fired * 2 > runs.length
+    if (errored.length > 0) {
+      const detail = ok.length === 0
+        ? errored[0].parsed.terminalReason
+        : `${errored[0].parsed.terminalReason} (${errored.length}/${runs.length})`
+      failures.push({ caseId: c.id, kind: 'error', detail })
+    }
+    if (ok.length === 0) continue // 전부 에러 — 판정 불가, scoreTrigger와 동일 기준 (설계 §10)
+
+    const fired = ok.filter(r => r.parsed.triggered).length
+    const majority = fired * 2 > ok.length
     if (c.expect === 'trigger' && !majority) {
       failures.push({ caseId: c.id, kind: '미발동', detail: c.prompt })
     }

@@ -17,6 +17,7 @@ export const loadRun = (repoRoot: string, runId: string) => {
 
 export const cmdReport = (runId: string, repoRoot: string): void => {
   const { meta, index, cases, score } = loadRun(repoRoot, runId)
-  console.log(formatReport({ meta, score, failures: collectFailures(index, cases) }))
+  const hasBaselineRuns = index.some(e => e.variant === 'without')
+  console.log(formatReport({ meta, score, failures: collectFailures(index, cases), hasBaselineRuns }))
 }
 /* v8 ignore stop */

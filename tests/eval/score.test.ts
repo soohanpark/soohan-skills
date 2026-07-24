@@ -92,4 +92,50 @@ describe('collectFailures', () => {
     const f = collectFailures([entry('p1', 1, { triggered: true }), entry('n1', 1)], cases)
     expect(f).toEqual([])
   })
+
+  it('reports both an error and a 미발동 when some repeats error but a surviving repeat did not trigger', () => {
+    const index = [
+      entry('p1', 1, { status: 'error', terminalReason: 'api_error' }),
+      entry('p1', 2, { status: 'error', terminalReason: 'api_error' }),
+      entry('p1', 3)
+    ]
+    const f = collectFailures(index, cases)
+    const errorEntry = f.find(x => x.kind === 'error')
+    expect(errorEntry).toBeDefined()
+    expect(errorEntry?.detail).toContain('api_error')
+    expect(errorEntry?.detail).toContain('2/3')
+    expect(f.some(x => x.kind === '미발동')).toBe(true)
+  })
+
+  it('reports only the error (no 미발동) when the surviving repeat did trigger', () => {
+    const index = [
+      entry('p1', 1, { status: 'error', terminalReason: 'api_error' }),
+      entry('p1', 2, { status: 'error', terminalReason: 'api_error' }),
+      entry('p1', 3, { triggered: true })
+    ]
+    const f = collectFailures(index, cases)
+    expect(f).toHaveLength(1)
+    expect(f[0].kind).toBe('error')
+  })
+
+  it('reports both an error and a 오발동 for a no-trigger case when a surviving repeat fired', () => {
+    const index = [
+      entry('n1', 1, { status: 'error', terminalReason: 'api_error' }),
+      entry('n1', 2, { triggered: true })
+    ]
+    const f = collectFailures(index, cases)
+    expect(f.some(x => x.kind === 'error')).toBe(true)
+    expect(f.some(x => x.kind === '오발동')).toBe(true)
+  })
+
+  it('reports exactly one error and no trigger verdict when every repeat errored', () => {
+    const index = [
+      entry('p1', 1, { status: 'error', terminalReason: 'api_error' }),
+      entry('p1', 2, { status: 'error', terminalReason: 'api_error' }),
+      entry('p1', 3, { status: 'error', terminalReason: 'api_error' })
+    ]
+    const f = collectFailures(index, cases)
+    expect(f).toHaveLength(1)
+    expect(f[0]).toEqual({ caseId: 'p1', kind: 'error', detail: 'api_error' })
+  })
 })
