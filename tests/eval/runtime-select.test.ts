@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { buildRecordPlan, checkResume, parseRecordFlags, parseRuntimeFlag, RUNTIMES } from '../../scripts/eval/commands/record'
-import type { EvalCase } from '../../scripts/eval/cases'
+import { buildRecordPlan, checkResume, parseRecordFlags, parseRuntimeFlag, RUNTIMES } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
+import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
 
 describe('parseRecordFlags', () => {
   it('extracts --runtime and --resume regardless of order', () => {

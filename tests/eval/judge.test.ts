@@ -2,8 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   buildJudgeArgs, deriveCriteria, buildJudgePrompt, parseVerdict, isRationaleOnTopic, resolvePair,
   isJudgeTrustworthy, scorePairwise, skillDescription
-} from '../../scripts/eval/judge'
-import type { EvalCase } from '../../scripts/eval/cases'
+} from '../../plugins/skill-eval/skills/score/scripts/judge'
+import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
 
 const base: EvalCase = { id: 'q1', prompt: 'x', expect: 'trigger', split: 'test' }
 

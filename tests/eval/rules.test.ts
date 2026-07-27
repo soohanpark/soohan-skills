@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { checkRules } from '../../scripts/eval/rules'
+import { checkRules } from '../../plugins/skill-eval/skills/score/scripts/rules'
 
 describe('checkRules', () => {
   it('passes when every must substring is present', () => {

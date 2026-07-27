@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { resolveSkill, slug, runDirName } from '../../scripts/eval/paths'
-import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../scripts/eval/commands/record'
+import { resolveSkill, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
 
 describe('resolveSkill', () => {
   it('expands a plugin:skill id into the repository skill directory', () => {

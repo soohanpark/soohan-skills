@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildArgs, execFailureReason, makeExec } from '../../scripts/eval/runtimes/claude'
+import { buildArgs, execFailureReason, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
 
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
 

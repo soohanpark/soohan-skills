@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseClaudeStream } from '../../scripts/eval/parse'
+import { parseClaudeStream } from '../../plugins/skill-eval/skills/score/scripts/parse'
 
 const fixture = (name: string) =>
   readFileSync(join(__dirname, '..', 'fixtures', `${name}.jsonl`), 'utf8')

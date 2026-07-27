@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures, scoreRules, summarizeExecution, tokenDelta } from '../../scripts/eval/score'
-import type { EvalCase } from '../../scripts/eval/cases'
-import type { IndexEntry } from '../../scripts/eval/record'
+import { scoreTrigger, collectFailures, scoreRules, summarizeExecution, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
+import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
+import type { IndexEntry } from '../../plugins/skill-eval/skills/score/scripts/record'
 
 const parsed = (over: Partial<IndexEntry['parsed']> = {}) => ({
   triggered: false, skillReadFallback: false, finalText: '',

@@ -12,5 +12,5 @@
     "noEmit": true,
     "types": ["node", "vitest/globals"]
   },
-  "include": ["scripts/**/*.ts", "tests/**/*.ts"]
+  "include": ["scripts/**/*.ts", "plugins/skill-eval/skills/score/scripts/**/*.ts", "tests/**/*.ts"]
 }

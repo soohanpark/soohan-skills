@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { isTransient, planRuns, recordAll } from '../../scripts/eval/record'
-import type { EvalCase } from '../../scripts/eval/cases'
-import type { ParsedRun } from '../../scripts/eval/parse'
-import type { Exec } from '../../scripts/eval/runtimes/claude'
+import { isTransient, planRuns, recordAll } from '../../plugins/skill-eval/skills/score/scripts/record'
+import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
+import type { ParsedRun } from '../../plugins/skill-eval/skills/score/scripts/parse'
+import type { Exec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
 
 let out: string
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
