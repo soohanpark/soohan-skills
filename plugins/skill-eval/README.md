@@ -4,9 +4,10 @@
 
 ## 참고
 
-이 플러그인은 `soohan-skills` 저장소의 `pnpm eval *` 스크립트(`scripts/eval/`)를 호출한다.
-따라서 이 저장소를 클론한 작업 디렉터리 안에서(또는 `cwd`를 그리로 두고) 써야 의미가 있다 —
-다른 프로젝트에 설치해도 하네스 스크립트 자체가 없으면 아무것도 실행되지 않는다.
+하네스 스크립트가 스킬에 번들되어 있다(`skills/score/scripts/`) — **플러그인 설치만으로
+어디서든 동작하며, 별도 클론이 필요 없다.** 실행에는 Node(`npx tsx`)만 있으면 된다.
+결과는 soohan-skills 체크아웃 안에서 돌리면 레포 `evals/`(커밋 대상), 밖에서 돌리면
+`~/.skill-eval/` 에 쌓인다.
 
 **측정 대상 스킬은 세션에 설치·리로드되어 있어야 한다.** 트리거 축은 자연어 프롬프트가
 실제 환경에서 스킬을 부르는지 보므로, 아직 설치하지 않은 새 스킬은 발동률이 0%로 나온다 —
@@ -34,10 +35,12 @@ Codex · Gemini · Kimi CLI (레포 루트에서):
 
 ## 동작
 
-1. `pnpm eval mine <skill>` — 세션 로그에서 케이스 채굴 (사람이 검토 후 승격)
-2. `pnpm eval record <skill>` — 실제 실행, `evals/runs/<runId>/`에 원본 적재 (`--runtime=claude|codex`, 중단 시 `--resume=<runId>`)
-3. `pnpm eval judge <runId>` — 페어와이즈 블라인드 심판
-4. `pnpm eval report <runId>` — 표 출력
+1. `eval mine <skill>` — 세션 로그에서 케이스 채굴 (사람이 검토 후 승격)
+2. `eval record <skill>` — 실제 실행, `<eval 홈>/evals/runs/<runId>/`에 원본 적재 (`--runtime=claude|codex`, 중단 시 `--resume=<runId>`)
+3. `eval judge <runId>` — 페어와이즈 블라인드 심판
+4. `eval report <runId>` — 표 출력
+
+`eval` = 체크아웃 안에서는 `pnpm eval`, 밖에서는 `npx tsx <스킬 디렉터리>/scripts/cli.ts`.
 
 스킬은 이 네 단계를 순서대로 부르고, near-miss 선별·실패 원인 진단·description 재작성
 제안처럼 판단이 필요한 지점에서만 개입한다.

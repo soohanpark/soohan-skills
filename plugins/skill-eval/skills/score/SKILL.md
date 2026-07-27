@@ -9,14 +9,22 @@ description: Use when the user wants to measure whether a skill actually works �
 
 ## 절차는 스크립트가 한다
 
-실행·반복·파싱·집계는 전부 결정적이므로 직접 하지 말고 스크립트를 부른다.
+실행·반복·파싱·집계는 전부 결정적이므로 직접 하지 말고 이 스킬에 번들된 스크립트를 부른다.
+아래의 `<eval>` 은 실행 환경에 따라 고른다:
+
+- soohan-skills 체크아웃 안: `pnpm eval`
+- 그 외 어디서든: `npx -y tsx <이 SKILL.md 가 있는 디렉터리>/scripts/cli.ts` — Node 만 있으면 된다
 
 ```bash
-pnpm eval mine   <plugin:skill>   # 로그 채굴 → cases.draft.jsonl
-pnpm eval record <plugin:skill>   # 실행 → evals/runs/<runId>/  (--runtime=claude|codex, 중단됐으면 --resume=<runId>)
-pnpm eval judge  <runId>          # 페어와이즈 판정
-pnpm eval report <runId>          # 표 출력
+<eval> mine   <스킬>   # 로그 채굴 → cases.draft.jsonl
+<eval> record <스킬>   # 실행 → 런 디렉터리 적재  (--runtime=claude|codex, 중단됐으면 --resume=<runId>)
+<eval> judge  <runId>  # 페어와이즈 판정
+<eval> report <runId>  # 표 출력
 ```
+
+`<스킬>` 지정: 체크아웃 안에서는 `plugin:skill` id, 밖에서는 대상 SKILL.md 가 든 디렉터리
+경로를 넘긴다 (`…/<plugin>/skills/<skill>` 모양이어야 한다 — id 형식은 체크아웃 안에서만
+스킬 파일을 찾을 수 있다). 결과는 체크아웃 안이면 레포 `evals/`, 밖이면 `~/.skill-eval/` 에 쌓인다.
 
 ## 당신이 판단할 것은 셋뿐이다
 
@@ -38,7 +46,7 @@ pnpm eval report <runId>          # 표 출력
 - **케이스를 `cases.jsonl`로 직접 승격하지 않는다.** draft에는 실사용 프롬프트 원문이 들어 있고 이 저장소는 공개다.
   후보를 정리해 보여주고 사람이 확정하게 한다.
 - **SKILL.md를 직접 수정하지 않는다.** 제안까지만 한다.
-- 리포트 숫자만 보고 결론짓지 않는다. `evals/runs/<runId>/`의 원본 JSONL을 열어 실행 과정을 확인한다.
+- 리포트 숫자만 보고 결론짓지 않는다. 런 디렉터리(`<eval 홈>/evals/runs/<runId>/`)의 원본 JSONL을 열어 실행 과정을 확인한다.
   세 케이스 모두에서 비슷한 헬퍼를 새로 만들고 있다면 그 스킬에 스크립트를 번들해야 한다는 신호다.
 
 ## 결과 읽는 법
