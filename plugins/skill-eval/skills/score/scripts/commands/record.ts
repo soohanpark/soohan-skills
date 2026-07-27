@@ -125,7 +125,7 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
   const skill = resolveSkill(skillArg, repoRoot)
   const file = casesFile(repoRoot, skill.id)
   if (!existsSync(file)) {
-    console.error(`✗ ${file} 가 없습니다. 먼저 'pnpm eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
+    console.error(`✗ ${file} 가 없습니다. 먼저 'eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
     process.exit(1)
   }
 

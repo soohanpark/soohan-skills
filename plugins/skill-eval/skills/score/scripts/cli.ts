@@ -5,11 +5,11 @@ import { cmdJudge } from './commands/judge.js'
 import { cmdMine } from './commands/mine.js'
 import { cmdRecord } from './commands/record.js'
 import { cmdDiff, cmdReport } from './commands/report.js'
-import { evalsRoot } from './paths.js'
+import { evalsRoot, resolveEvalHome } from './paths.js'
 
 /* v8 ignore start */
 const usage = (repoRoot: string) => {
-  console.log('사용법: pnpm eval <record|judge|mine|report> <인자>')
+  console.log('사용법: eval <record|judge|mine|report> <인자>  (soohan-skills 레포 안: pnpm eval …, 밖: npx tsx <이 파일> …)')
   console.log('  record <plugin:skill | SKILL.md 경로> [--runtime=claude|codex] [--resume=<runId>]')
   console.log('  judge <runId>')
   console.log('  mine <plugin:skill | SKILL.md 경로>')
@@ -28,7 +28,7 @@ const isMain = () => {
 }
 
 if (isMain()) {
-  const repoRoot = process.cwd()
+  const repoRoot = resolveEvalHome(process.cwd())
   const [sub, arg] = process.argv.slice(2)
   if (sub === 'record' && arg) await cmdRecord(arg, repoRoot, process.argv.slice(4))
   else if (sub === 'report' && arg === '--diff') cmdDiff(process.argv[4], process.argv[5], repoRoot)

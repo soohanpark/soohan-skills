@@ -1,5 +1,26 @@
-import { join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { dirname, join } from 'node:path'
 import type { SkillRef } from './runtimes/claude.js'
+
+// soohan-skills 체크아웃 안에서 돌면 그 루트(evals/ 가 커밋 대상), 밖에서 돌면
+// ~/.skill-eval — 설치된 플러그인만으로 아무 프로젝트에서나 쓰기 위한 분기다.
+export const resolveEvalHome = (cwd: string): string => {
+  let dir = cwd
+  while (true) {
+    const pkg = join(dir, 'package.json')
+    if (existsSync(pkg)) {
+      try {
+        if (JSON.parse(readFileSync(pkg, 'utf8')).name === 'soohan-skills') return dir
+      } catch {
+        // 깨진 package.json 은 지나치고 계속 올라간다
+      }
+    }
+    const parent = dirname(dir)
+    if (parent === dir) return join(homedir(), '.skill-eval')
+    dir = parent
+  }
+}
 
 // "plugin:skill", SKILL.md 가 든 디렉터리 경로, 또는 SKILL.md 파일 경로 자체를 받는다.
 export const resolveSkill = (arg: string, repoRoot: string): SkillRef => {

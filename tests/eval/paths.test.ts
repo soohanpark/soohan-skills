@@ -1,6 +1,36 @@
-import { describe, it, expect } from 'vitest'
-import { resolveSkill, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { resolveEvalHome, resolveSkill, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
 import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
+
+describe('resolveEvalHome', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-home-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  it('returns the checkout root when cwd is nested inside a soohan-skills clone', () => {
+    writeFileSync(join(root, 'package.json'), '{"name":"soohan-skills"}')
+    const nested = join(root, 'plugins', 'demo')
+    mkdirSync(nested, { recursive: true })
+    expect(resolveEvalHome(nested)).toBe(root)
+  })
+
+  it('falls back to ~/.skill-eval when no soohan-skills checkout is above cwd', () => {
+    expect(resolveEvalHome(root)).toBe(join(homedir(), '.skill-eval'))
+  })
+
+  it('ignores unrelated package.json files on the way up', () => {
+    writeFileSync(join(root, 'package.json'), '{"name":"other-project"}')
+    expect(resolveEvalHome(root)).toBe(join(homedir(), '.skill-eval'))
+  })
+
+  it('skips a malformed package.json instead of crashing', () => {
+    writeFileSync(join(root, 'package.json'), '{ not json')
+    expect(resolveEvalHome(root)).toBe(join(homedir(), '.skill-eval'))
+  })
+})
 
 describe('resolveSkill', () => {
   it('expands a plugin:skill id into the repository skill directory', () => {
