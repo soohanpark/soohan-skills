@@ -1,0 +1,4 @@
+{
+  "//": "ESM 마커 — 설치된 스킬 디렉터리에는 레포 루트의 type:module 이 없어, 이 파일이 없으면 npx tsx 가 CJS 로 취급해 top-level await/import.meta 에서 죽는다",
+  "type": "module"
+}
