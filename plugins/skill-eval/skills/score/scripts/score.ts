@@ -1,0 +1,174 @@
+import type { EvalCase } from './cases.js'
+import type { IndexEntry } from './record.js'
+import { checkRules } from './rules.js'
+
+export interface SplitScore {
+  positive: { hit: number; total: number }
+  negative: { falseHit: number; total: number }
+  unstable: string[]
+  nError: number
+}
+
+export interface TriggerScore {
+  train: SplitScore
+  test: SplitScore
+}
+
+export interface Failure {
+  caseId: string
+  kind: '오발동' | '미발동' | 'must' | 'timeout' | 'error'
+  detail: string
+}
+
+const emptySplit = (): SplitScore => ({
+  positive: { hit: 0, total: 0 },
+  negative: { falseHit: 0, total: 0 },
+  unstable: [],
+  nError: 0
+})
+
+const triggerRunsFor = (index: IndexEntry[], caseId: string) =>
+  index.filter(e => e.variant === 'with' && e.caseId === caseId)
+
+// Task 5 리뷰 이월: scoreTrigger와 collectFailures가 "ok 필터 → 2:1 다수결" 계산을
+// 각자 베껴 썼다 — 텍스트가 같아서 우연히 일치했을 뿐이라 규칙이 바뀌면 조용히 어긋날 수 있었다.
+const okRuns = (runs: IndexEntry[]): IndexEntry[] => runs.filter(r => r.parsed.status === 'ok')
+const firedCount = (ok: IndexEntry[]): number => ok.filter(r => r.parsed.triggered).length
+const firedMajority = (fired: number, ok: IndexEntry[]): boolean => fired * 2 > ok.length
+
+export const scoreTrigger = (index: IndexEntry[], cases: EvalCase[]): TriggerScore => {
+  const score: TriggerScore = { train: emptySplit(), test: emptySplit() }
+
+  for (const c of cases) {
+    const runs = triggerRunsFor(index, c.id)
+    if (runs.length === 0) continue
+
+    const bucket = score[c.split]
+    const ok = okRuns(runs)
+    bucket.nError += runs.length - ok.length
+    if (ok.length === 0) continue // 전부 에러 — 판정 불가, 분모에서 제외 (설계 §10)
+
+    const fired = firedCount(ok)
+    if (fired > 0 && fired < ok.length) bucket.unstable.push(c.id)
+
+    const majority = firedMajority(fired, ok)
+    if (c.expect === 'trigger') {
+      bucket.positive.total += 1
+      if (majority) bucket.positive.hit += 1
+    } else {
+      bucket.negative.total += 1
+      if (majority) bucket.negative.falseHit += 1
+    }
+  }
+
+  return score
+}
+
+export const collectFailures = (index: IndexEntry[], cases: EvalCase[]): Failure[] => {
+  const failures: Failure[] = []
+
+  for (const c of cases) {
+    const runs = triggerRunsFor(index, c.id)
+    if (runs.length === 0) continue
+
+    const ok = okRuns(runs)
+    const errored = runs.filter(r => r.parsed.status !== 'ok')
+
+    if (errored.length > 0) {
+      const detail = ok.length === 0
+        ? errored[0].parsed.terminalReason
+        : `${errored[0].parsed.terminalReason} (${errored.length}/${runs.length})`
+      failures.push({ caseId: c.id, kind: errored[0].parsed.status === 'timeout' ? 'timeout' : 'error', detail })
+    }
+    if (ok.length === 0) continue // 전부 에러 — 판정 불가, scoreTrigger와 동일 기준 (설계 §10)
+
+    const fired = firedCount(ok)
+    const majority = firedMajority(fired, ok)
+    if (c.expect === 'trigger' && !majority) {
+      failures.push({ caseId: c.id, kind: '미발동', detail: c.prompt })
+    }
+    if (c.expect === 'no-trigger' && majority) {
+      failures.push({ caseId: c.id, kind: '오발동', detail: c.prompt })
+    }
+  }
+
+  return failures
+}
+
+// forced 변형은 반복하지 않으므로 다수결이 필요 없다 — case당 forced 실행이 정상 종료했는지만 본다
+// (실행 에러는 트리거 축과 같은 원칙으로 품질 실패가 아니라 판정 불가로 분모에서 제외한다).
+// scoreTrigger와 마찬가지로 판정(pass/total)은 split별로 나눈다 — train에 맞춰 튜닝한 케이스가
+// 전체 합격/불합격을 뒤집지 못하게 막기 위함이다 (설계 §과적합 방지). failures 목록만은 두 split을
+// 합쳐서 보여준다 — 실패 사례를 숨기지 않되, 판정 자체는 test에서만 계산한다.
+export interface RuleTally { pass: number; total: number }
+export interface RuleScore { train: RuleTally; test: RuleTally; failures: Failure[] }
+
+export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore => {
+  const train: RuleTally = { pass: 0, total: 0 }
+  const test: RuleTally = { pass: 0, total: 0 }
+  const failures: Failure[] = []
+
+  for (const c of cases) {
+    if (!c.must && !c.must_not) continue
+    const run = index.find(e => e.variant === 'forced' && e.caseId === c.id)
+    if (!run) continue
+    if (run.parsed.status !== 'ok') {
+      // 판정 불가 — 분모에서 빼되 실패 목록에는 남긴다. 조용히 빠지면 분모 축소가 안 보인다 (리뷰 R6)
+      failures.push({
+        caseId: c.id,
+        kind: run.parsed.status === 'timeout' ? 'timeout' : 'error',
+        detail: `forced: ${run.parsed.terminalReason}`
+      })
+      continue
+    }
+
+    const bucket = c.split === 'test' ? test : train
+    bucket.total += 1
+    const r = checkRules(run.parsed.finalText, c)
+    if (r.passed) bucket.pass += 1
+    else failures.push({ caseId: c.id, kind: 'must', detail: r.failures.join(', ') })
+  }
+
+  return { train, test, failures }
+}
+
+// forced 가 without 대비 토큰을 얼마나 더/덜 쓰는지 — 품질 델타의 일부로 기록한다 (설계 §7-4).
+// 두 변형 모두 ok 인 케이스만 짝지어 합산한다 — 분모가 어긋나면 케이스 수 차이만으로 델타가
+// 부풀려진다 (리뷰 R5). 짝이 하나도 없으면(without 이 없는 codex 등) forced 합계만 보고한다.
+export const tokenDelta = (index: IndexEntry[]): { forced: number; without: number | null } | null => {
+  const okRunsOf = (variant: 'forced' | 'without') =>
+    index.filter(e => e.variant === variant && e.parsed.status === 'ok')
+
+  const forcedRuns = okRunsOf('forced')
+  if (forcedRuns.length === 0) return null
+
+  const sum = (runs: IndexEntry[]) => runs.reduce((total, e) => total + e.parsed.tokens, 0)
+  const withoutByCase = new Map(okRunsOf('without').map(e => [e.caseId, e]))
+  const paired = forcedRuns.filter(e => withoutByCase.has(e.caseId))
+  if (paired.length === 0) return { forced: sum(forcedRuns), without: null }
+
+  return {
+    forced: sum(paired),
+    without: sum(paired.map(e => withoutByCase.get(e.caseId)!))
+  }
+}
+
+export interface ExecutionSummary {
+  ok: number
+  total: number
+  timeouts: number
+  errors: number
+  durationMs: number
+}
+
+// 전 변형을 합친 실행 요약 (설계 §5-2). 트리거 축 밖(forced/without)의 실행 실패가
+// 리포트에서 아예 안 보이는 것을 막는다 (리뷰 R6). durationMs 는 이번 호출에서 실제로
+// 실행된 항목의 합 — recordAll 은 순차 실행이라 벽시계 시간과 근사하고, 재개로 재구성된
+// 항목은 0 으로 들어온다.
+export const summarizeExecution = (index: IndexEntry[]): ExecutionSummary => ({
+  ok: index.filter(e => e.parsed.status === 'ok').length,
+  total: index.length,
+  timeouts: index.filter(e => e.parsed.status === 'timeout').length,
+  errors: index.filter(e => e.parsed.status === 'error').length,
+  durationMs: index.reduce((t, e) => t + e.durationMs, 0)
+})
