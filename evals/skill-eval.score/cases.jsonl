@@ -1,0 +1,8 @@
+{"id":"p-001","prompt":"이 스킬 평가해줘","expect":"trigger","split":"train","source":"hand"}
+{"id":"p-002","prompt":"blin-mr 스킬 발동률 좀 재줘","expect":"trigger","split":"train","source":"hand"}
+{"id":"p-003","prompt":"description 고쳤는데 회귀 났는지 확인해줘","expect":"trigger","split":"test","source":"hand"}
+{"id":"p-004","prompt":"이 스킬이 실제로 도움이 되는지 baseline이랑 비교해줘","expect":"trigger","split":"train","source":"hand"}
+{"id":"n-001","prompt":"이 함수 테스트 코드 짜줘","expect":"no-trigger","split":"test","source":"hand:near-miss"}
+{"id":"n-002","prompt":"테스트 커버리지 올려줘","expect":"no-trigger","split":"train","source":"hand:near-miss"}
+{"id":"n-003","prompt":"pnpm test 돌려서 실패하는 거 고쳐줘","expect":"no-trigger","split":"test","source":"hand:near-miss"}
+{"id":"n-004","prompt":"새 스킬 하나 만들어줘","expect":"no-trigger","split":"train","source":"hand:near-miss"}
