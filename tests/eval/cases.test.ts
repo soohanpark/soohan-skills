@@ -64,6 +64,26 @@ describe('loadCases', () => {
     expect(() => loadCases(p)).toThrow(/line 1.*prompt/s)
   })
 
+  it('throws when must is not a string array', () => {
+    const p = write(['{"id":"a","prompt":"x","expect":"trigger","must":"not-array"}'])
+    expect(() => loadCases(p)).toThrow(/line 1.*must/s)
+  })
+
+  it('throws when qualitative is not a boolean', () => {
+    const p = write(['{"id":"a","prompt":"x","expect":"trigger","qualitative":"yes"}'])
+    expect(() => loadCases(p)).toThrow(/line 1.*qualitative/s)
+  })
+
+  it('throws when split is not train or test', () => {
+    const p = write(['{"id":"a","prompt":"x","expect":"trigger","split":"validation"}'])
+    expect(() => loadCases(p)).toThrow(/line 1.*split/s)
+  })
+
+  it('drops unknown keys', () => {
+    const p = write(['{"id":"a","prompt":"x","expect":"trigger","extra":1}'])
+    expect(loadCases(p)[0]).not.toHaveProperty('extra')
+  })
+
   it('throws on duplicate ids', () => {
     const p = write([
       '{"id":"dup","prompt":"x","expect":"trigger"}',
