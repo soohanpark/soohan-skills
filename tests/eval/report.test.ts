@@ -5,8 +5,8 @@ import type { PairwiseScore } from '../../plugins/skill-eval/skills/score/script
 import type { RunMeta } from '../../plugins/skill-eval/skills/score/scripts/record'
 
 const score: TriggerScore = {
-  train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], nError: 0 },
-  test: { positive: { hit: 12, total: 13 }, negative: { falseHit: 1, total: 12 }, unstable: ['y', 'z'], nError: 1 }
+  train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], undecided: [], nError: 0 },
+  test: { positive: { hit: 12, total: 13 }, negative: { falseHit: 1, total: 12 }, unstable: ['y', 'z'], undecided: [], nError: 1 }
 }
 
 const meta: RunMeta = {
@@ -42,32 +42,32 @@ describe('formatTokenCount', () => {
 
 describe('verdict', () => {
   it('passes when positives are at least 90% and false hits at most 10%', () => {
-    expect(verdict(score).passed).toBe(true)
+    expect(verdict(score).status).toBe('pass')
   })
 
   it('fails and names the metric when the positive rate is too low', () => {
     const low = { ...score, test: { ...score.test, positive: { hit: 5, total: 13 } } }
     const v = verdict(low)
-    expect(v.passed).toBe(false)
+    expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/발동률/)
   })
 
   it('fails when the false trigger rate is too high', () => {
     const bad = { ...score, test: { ...score.test, negative: { falseHit: 6, total: 12 } } }
-    expect(verdict(bad).passed).toBe(false)
+    expect(verdict(bad).status).toBe('fail')
   })
 
   it('ignores the rules gate when no rules were scored (total 0)', () => {
-    expect(verdict(score, { pass: 0, total: 0 }).passed).toBe(true)
+    expect(verdict(score, { pass: 0, total: 0 }).status).toBe('pass')
   })
 
   it('passes when the must/must_not pass rate is at least 90%', () => {
-    expect(verdict(score, { pass: 9, total: 10 }).passed).toBe(true)
+    expect(verdict(score, { pass: 9, total: 10 }).status).toBe('pass')
   })
 
   it('fails and names must/must_not when the rule pass rate is too low', () => {
     const v = verdict(score, { pass: 5, total: 10 })
-    expect(v.passed).toBe(false)
+    expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/must\/must_not/)
   })
 })
@@ -121,40 +121,95 @@ describe('formatReport', () => {
 
 describe('verdict with pairwise', () => {
   it('passes when the skill wins at least 60% of decided pairs', () => {
-    expect(verdict(score, undefined, pairwise).passed).toBe(true)
+    expect(verdict(score, undefined, pairwise, 'trusted').status).toBe('pass')
   })
 
   it('fails when the win rate is near chance', () => {
     const coin: PairwiseScore = { win: 3, loss: 3, tie: 0, discarded: 0, rate: 0.5 }
-    const v = verdict(score, undefined, coin)
-    expect(v.passed).toBe(false)
+    const v = verdict(score, undefined, coin, 'trusted')
+    expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/존재 의미/)
   })
 
   it('ignores pairwise entirely when no pair was decided', () => {
     const none: PairwiseScore = { win: 0, loss: 0, tie: 2, discarded: 0, rate: null }
-    expect(verdict(score, undefined, none).passed).toBe(true)
+    expect(verdict(score, undefined, none, 'trusted').status).toBe('pass')
   })
 })
 
-describe('verdict with judgeTrustworthy', () => {
+// 심판을 못 믿는데 합격을 찍으면, 판정 줄만 파싱하는 CI 는 통과로 읽는다. 정성 축을 재려다
+// 실패한 실행은 합격도 불합격도 아니라 '판정 불가' 여야 한다.
+describe('verdict with judgeCheck', () => {
   const losing: PairwiseScore = { win: 1, loss: 5, tie: 0, discarded: 0, rate: 1 / 6 }
 
-  it('does not add a pairwise-driven fail reason when the judge failed its self-check', () => {
-    const v = verdict(score, undefined, losing, false)
-    expect(v.passed).toBe(true)
+  it('is undecidable — not a pass — when the judge failed its self-check', () => {
+    const v = verdict(score, undefined, losing, 'untrusted')
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/통과하지 못해/)
     expect(v.reasons.join(' ')).not.toMatch(/존재 의미/)
   })
 
-  it('still applies the pairwise threshold when judgeTrustworthy is explicitly true', () => {
-    const v = verdict(score, undefined, losing, true)
-    expect(v.passed).toBe(false)
+  it('is undecidable when the self-check never ran', () => {
+    const v = verdict(score, undefined, losing, 'unchecked')
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/수행되지 않아/)
+  })
+
+  it('defaults to unchecked rather than assuming a trustworthy judge', () => {
+    expect(verdict(score, undefined, losing).status).toBe('undecidable')
+  })
+
+  it('applies the pairwise threshold only once the judge is trusted', () => {
+    const v = verdict(score, undefined, losing, 'trusted')
+    expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/존재 의미/)
   })
 
-  it('still applies the pairwise threshold when judgeTrustworthy is omitted', () => {
-    const v = verdict(score, undefined, losing)
-    expect(v.passed).toBe(false)
+  it('stays quiet about the judge when there is no pairwise data at all', () => {
+    expect(verdict(score, undefined, undefined, 'unchecked').status).toBe('pass')
+  })
+})
+
+// split 을 안 적으면 test 분모가 전부 0이 되고, 게이트가 하나도 안 돌아 '✓ 합격' 이 찍혔다.
+describe('verdict · 측정이 성립하지 않은 실행', () => {
+  const emptyTest: TriggerScore = {
+    train: { positive: { hit: 2, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], nError: 0 },
+    test: { positive: { hit: 0, total: 0 }, negative: { falseHit: 0, total: 0 }, unstable: [], undecided: [], nError: 0 }
+  }
+
+  it('is undecidable when no gate could be evaluated', () => {
+    const v = verdict(emptyTest)
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/split/)
+  })
+
+  it('is still undecidable when only train has numbers, however good they look', () => {
+    const perfectTrain = { ...emptyTest, train: { ...emptyTest.train, positive: { hit: 3, total: 3 } } }
+    expect(verdict(perfectTrain).status).toBe('undecidable')
+  })
+
+  it('becomes decidable as soon as one test gate has a denominator', () => {
+    const oneGate = { ...emptyTest, test: { ...emptyTest.test, positive: { hit: 1, total: 1 } } }
+    expect(verdict(oneGate).status).toBe('pass')
+  })
+
+  // 에러로 빠진 케이스가 조용히 분모를 줄이면 남은 한 건이 100% 를 만들어 게이트를 통과시킨다.
+  it('is undecidable when test cases dropped out of the denominator on errors', () => {
+    const dropped = { ...score, test: { ...score.test, undecided: ['p-002', 'p-003'] } }
+    const v = verdict(dropped)
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/p-002/)
+  })
+
+  it('reports a definite failure as a failure even when cases also dropped out', () => {
+    const dropped = {
+      ...score,
+      test: { ...score.test, positive: { hit: 1, total: 13 }, undecided: ['p-002'] }
+    }
+    const v = verdict(dropped)
+    expect(v.status).toBe('fail')
+    expect(v.reasons.join(' ')).toMatch(/발동률/)
+    expect(v.reasons.join(' ')).toMatch(/p-002/)
   })
 })
 
@@ -177,20 +232,72 @@ describe('formatReport with pairwise', () => {
   })
 })
 
-describe('formatReport with judgeTrustworthy', () => {
+describe('formatReport with judgeCheck', () => {
   it('warns when a pairwise result is present and the judge failed its self-check', () => {
-    const out = formatReport({ meta, score, failures: [], pairwise, judgeTrustworthy: false })
+    const out = formatReport({ meta, score, failures: [], pairwise, judgeCheck: 'untrusted' as const })
     expect(out).toContain('심판 신뢰성')
   })
 
-  it('does not warn when judgeTrustworthy is true with the same pairwise data', () => {
-    const out = formatReport({ meta, score, failures: [], pairwise, judgeTrustworthy: true })
+  it('does not warn when the judge passed its self-check', () => {
+    const out = formatReport({ meta, score, failures: [], pairwise, judgeCheck: 'trusted' as const })
     expect(out).not.toContain('심판 신뢰성')
   })
 
-  it('does not warn when judgeTrustworthy is omitted with the same pairwise data', () => {
-    const out = formatReport({ meta, score, failures: [], pairwise })
-    expect(out).not.toContain('심판 신뢰성')
+  // 검사를 안 돌린 것과 통과한 것이 화면에서 같아 보이면 안 된다.
+  it('says the self-check never ran rather than staying silent', () => {
+    const out = formatReport({ meta, score, failures: [], pairwise, judgeCheck: 'unchecked' as const })
+    expect(out).toContain('자가진단 미수행')
+    expect(out).not.toContain('심판 신뢰성 실패')
+  })
+
+  it('says nothing about the judge when there is no pairwise data', () => {
+    const out = formatReport({ meta, score, failures: [], judgeCheck: 'unchecked' as const })
+    expect(out).not.toContain('자가진단')
+  })
+})
+
+describe('formatReport · 판정 3상태와 비용', () => {
+  const emptyTest: TriggerScore = {
+    train: { positive: { hit: 2, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], nError: 0 },
+    test: { positive: { hit: 0, total: 0 }, negative: { falseHit: 0, total: 0 }, unstable: [], undecided: [], nError: 0 }
+  }
+
+  it('prints 판정 불가 instead of a tick when nothing was measured', () => {
+    const out = formatReport({ meta, score: emptyTest, failures: [] })
+    expect(out).toContain('판정  ? 판정 불가')
+    expect(out).not.toContain('✓ 합격')
+  })
+
+  it('reports what a run cost so the delta can be weighed against it', () => {
+    const out = formatReport({
+      meta, score, failures: [],
+      execution: { ok: 17, total: 17, timeouts: 0, errors: 0, durationMs: 413000, costUsd: 3.2409 },
+      judgeCostUsd: 0.51
+    })
+    expect(out).toContain('record $3.24')
+    expect(out).toContain('judge $0.51')
+    expect(out).toContain('합계 $3.75')
+  })
+
+  // codex 는 이벤트에 비용 필드가 없어 0 이 나온다 — $0.00 이라고 단언하면 거짓말이 된다.
+  it('omits the cost line entirely when no cost was captured', () => {
+    const out = formatReport({
+      meta, score, failures: [],
+      execution: { ok: 2, total: 2, timeouts: 0, errors: 0, durationMs: 10, costUsd: 0 }
+    })
+    expect(out).not.toContain('비용')
+  })
+
+  it('warns when the case file no longer matches the recorded fingerprint', () => {
+    const out = formatReport({ meta, score, failures: [], casesDrifted: true })
+    expect(out).toContain('케이스 파일이 기록 시점과 다릅니다')
+  })
+
+  // 결정된 쌍이 하나도 없이 전부 폐기되면, 정성 축을 아예 안 잰 실행과 화면상 같아 보였다.
+  it('still shows the discarded count when every pair was thrown away', () => {
+    const allDiscarded: PairwiseScore = { win: 0, loss: 0, tie: 0, discarded: 4, rate: null }
+    const out = formatReport({ meta, score, failures: [], pairwise: allDiscarded })
+    expect(out).toContain('폐기된 판정 4건')
   })
 })
 
@@ -257,7 +364,7 @@ describe('formatReport execution summary', () => {
   it('shows the all-variant execution line with duration, omitting zero counts', () => {
     const out = formatReport({
       meta, score, failures: [],
-      execution: { ok: 41, total: 42, timeouts: 1, errors: 0, durationMs: 372000 }
+      execution: { ok: 41, total: 42, timeouts: 1, errors: 0, durationMs: 372000, costUsd: 0 }
     })
     expect(out).toContain('41/42 ok')
     expect(out).toContain('1 timeout')

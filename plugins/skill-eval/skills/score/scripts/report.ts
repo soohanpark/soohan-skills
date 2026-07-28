@@ -1,10 +1,13 @@
-import type { PairwiseScore } from './judge.js'
+import type { JudgeCheck, PairwiseScore } from './judge.js'
 import type { RunMeta } from './record.js'
 import type { ExecutionSummary, Failure, TriggerScore } from './score.js'
 
 const POSITIVE_FLOOR = 0.9
 const NEGATIVE_CEILING = 0.1
 const PAIRWISE_FLOOR = 0.6
+
+// 합격·불합격의 2상태로는 "측정했는데 통과" 와 "측정이 없었다" 가 화면에서 구분되지 않는다.
+export type VerdictStatus = 'pass' | 'fail' | 'undecidable'
 
 export const pct = (n: number, d: number): string =>
   d === 0 ? '—' : `${Math.round((n / d) * 100)}%`
@@ -25,32 +28,67 @@ export const formatDuration = (ms: number): string => {
   return s < 60 ? `${s}초` : `${Math.floor(s / 60)}분 ${s % 60}초`
 }
 
+// 게이트는 전부 "분모가 0이면 건너뛴다"로 방어돼 있다. 그 자체는 옳지만, 전부 건너뛰면
+// 아무 사유도 안 쌓인 채 합격이 나온다 — split 을 안 적었을 때 실제로 그렇게 됐다. 그래서
+// 통과한 게이트가 몇 개였는지를 세고, 측정이 성립하지 않은 사유는 reasons 와 따로 모은다.
 export const verdict = (
   score: TriggerScore,
   rules?: { pass: number; total: number },
   pairwise?: PairwiseScore,
-  judgeTrustworthy = true
-): { passed: boolean; reasons: string[] } => {
+  judgeCheck: JudgeCheck = 'unchecked'
+): { status: VerdictStatus; reasons: string[] } => {
   const reasons: string[] = []
+  const blockers: string[] = []
   const t = score.test
+  let gatesEvaluated = 0
 
-  if (t.positive.total > 0 && t.positive.hit / t.positive.total < POSITIVE_FLOOR) {
-    reasons.push(`positive 발동률 ${pct(t.positive.hit, t.positive.total)} < 90%`)
+  if (t.positive.total > 0) {
+    gatesEvaluated += 1
+    if (t.positive.hit / t.positive.total < POSITIVE_FLOOR) {
+      reasons.push(`positive 발동률 ${pct(t.positive.hit, t.positive.total)} < 90%`)
+    }
   }
-  if (t.negative.total > 0 && t.negative.falseHit / t.negative.total > NEGATIVE_CEILING) {
-    reasons.push(`negative 오발동률 ${pct(t.negative.falseHit, t.negative.total)} > 10%`)
+  if (t.negative.total > 0) {
+    gatesEvaluated += 1
+    if (t.negative.falseHit / t.negative.total > NEGATIVE_CEILING) {
+      reasons.push(`negative 오발동률 ${pct(t.negative.falseHit, t.negative.total)} > 10%`)
+    }
   }
-  if (rules && rules.total > 0 && rules.pass / rules.total < POSITIVE_FLOOR) {
-    reasons.push(`must/must_not ${pct(rules.pass, rules.total)} < 90%`)
-  }
-  // 심판이 자가진단(A=A)을 통과하지 못했다면 정성 축은 판정 불능이다 — 합격도 불합격도 시키지 않는다.
-  if (judgeTrustworthy !== false && pairwise && pairwise.rate !== null && pairwise.rate < PAIRWISE_FLOOR) {
-    reasons.push(
-      `페어와이즈 승률 ${Math.round(pairwise.rate * 100)}% < 60% — 스킬의 존재 의미를 재검토하세요`
-    )
+  if (rules && rules.total > 0) {
+    gatesEvaluated += 1
+    if (rules.pass / rules.total < POSITIVE_FLOOR) {
+      reasons.push(`must/must_not ${pct(rules.pass, rules.total)} < 90%`)
+    }
   }
 
-  return { passed: reasons.length === 0, reasons }
+  // 심판이 자가진단(A=A)을 통과하지 못했거나 아예 수행되지 않았다면 정성 축은 판정 불능이다.
+  const pairwiseDecided = pairwise !== undefined && pairwise.rate !== null
+  if (pairwiseDecided && judgeCheck === 'trusted') {
+    gatesEvaluated += 1
+    if (pairwise!.rate! < PAIRWISE_FLOOR) {
+      reasons.push(
+        `페어와이즈 승률 ${Math.round(pairwise!.rate! * 100)}% < 60% — 스킬의 존재 의미를 재검토하세요`
+      )
+    }
+  }
+
+  if (gatesEvaluated === 0) {
+    blockers.push('test split 에서 평가된 게이트가 하나도 없습니다 — 케이스에 split 이 지정됐는지 확인하세요')
+  }
+  if (t.undecided.length > 0) {
+    blockers.push(`test 케이스 ${t.undecided.length}건이 실행 에러로 측정되지 않았습니다 (${t.undecided.join(', ')})`)
+  }
+  if (pairwiseDecided && judgeCheck !== 'trusted') {
+    blockers.push(judgeCheck === 'unchecked'
+      ? '심판 자가진단이 수행되지 않아 정성 축을 판정할 수 없습니다'
+      : '심판이 자가진단을 통과하지 못해 정성 축을 판정할 수 없습니다')
+  }
+
+  // 확정된 불합격 사유가 있으면 그쪽이 우선한다 — 판정 불가보다 행동 가능한 정보다.
+  // 다만 측정이 성립하지 않은 사유도 함께 보여준다.
+  if (reasons.length > 0) return { status: 'fail', reasons: [...reasons, ...blockers] }
+  if (blockers.length > 0) return { status: 'undecidable', reasons: blockers }
+  return { status: 'pass', reasons: [] }
 }
 
 export const formatReport = (args: {
@@ -60,12 +98,14 @@ export const formatReport = (args: {
   hasBaselineRuns?: boolean
   rules?: { pass: number; total: number }
   pairwise?: PairwiseScore
-  judgeTrustworthy?: boolean
+  judgeCheck?: JudgeCheck
+  judgeCostUsd?: number
   tokens?: { forced: number; without: number | null }
   execution?: ExecutionSummary
+  casesDrifted?: boolean
 }): string => {
-  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeTrustworthy, tokens, execution } = args
-  const v = verdict(score, rules, pairwise, judgeTrustworthy)
+  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeCheck, judgeCostUsd, tokens, execution } = args
+  const v = verdict(score, rules, pairwise, judgeCheck)
   const lines: string[] = []
 
   lines.push(`skill-eval · ${meta.skillId} · ${meta.runId} · ${meta.model} · 경쟁 스킬 ${meta.loadedSkills.length}개`)
@@ -76,6 +116,15 @@ export const formatReport = (args: {
     if (execution.durationMs > 0) parts.push(formatDuration(execution.durationMs))
     lines.push(`실행  ${parts.join(' · ')}`)
   }
+  // "그 개선이 비용 대비 합리적인가"를 물으려면 얼마를 썼는지가 화면에 있어야 한다.
+  // codex 는 이벤트에 비용 필드가 없어 0 이 나오므로, 0 이면 줄 자체를 내지 않는다.
+  const recordCost = execution?.costUsd ?? 0
+  if (recordCost > 0 || (judgeCostUsd ?? 0) > 0) {
+    const parts = [`record $${recordCost.toFixed(2)}`]
+    if (judgeCostUsd !== undefined) parts.push(`judge $${judgeCostUsd.toFixed(2)}`)
+    if (judgeCostUsd !== undefined) parts.push(`합계 $${(recordCost + judgeCostUsd).toFixed(2)}`)
+    lines.push(`비용  ${parts.join(' · ')}`)
+  }
   lines.push('')
   lines.push('트리거                    test        train')
   lines.push(`  positive 발동률    ${score.test.positive.hit}/${score.test.positive.total}  ${pct(score.test.positive.hit, score.test.positive.total)}     ${score.train.positive.hit}/${score.train.positive.total}  ${pct(score.train.positive.hit, score.train.positive.total)}`)
@@ -84,7 +133,9 @@ export const formatReport = (args: {
   lines.push(`  실행 에러                ${score.test.nError}건        ${score.train.nError}건`)
 
   const showRules = Boolean(rules && rules.total > 0)
-  const showPairwise = Boolean(pairwise && (pairwise.win + pairwise.loss + pairwise.tie) > 0)
+  // 폐기된 판정도 "정성 축을 재려다 실패했다"는 신호다. 결정된 쌍이 하나도 없을 때 이 줄까지
+  // 같이 사라지면, 정성 축을 아예 안 잰 실행과 재려다 전부 버린 실행이 화면에서 똑같아 보인다.
+  const showPairwise = Boolean(pairwise && (pairwise.win + pairwise.loss + pairwise.tie + pairwise.discarded) > 0)
   const showTokens = Boolean(tokens && tokens.forced > 0)
   if (showRules || showPairwise || showTokens) {
     lines.push('')
@@ -95,7 +146,9 @@ export const formatReport = (args: {
     if (pairwise && (pairwise.win + pairwise.loss + pairwise.tie) > 0) {
       const rate = pairwise.rate === null ? '—' : `${Math.round(pairwise.rate * 100)}%`
       lines.push(`  페어와이즈 승률     ${pairwise.win}승 ${pairwise.tie}무 ${pairwise.loss}패  ${rate}`)
-      if (pairwise.discarded > 0) lines.push(`  (기준 밖 근거로 폐기된 판정 ${pairwise.discarded}건)`)
+    }
+    if (pairwise && pairwise.discarded > 0) {
+      lines.push(`  (기준 밖 근거로 폐기된 판정 ${pairwise.discarded}건)`)
     }
     if (tokens && tokens.forced > 0) {
       // without: null 은 baseline 자체가 없는 실행(codex 등) — 델타 없이 forced 사용량만 보여준다
@@ -105,9 +158,20 @@ export const formatReport = (args: {
     }
   }
 
-  if (pairwise && judgeTrustworthy === false) {
+  // "검사했고 통과" 와 "검사를 안 했다" 는 다른 상태다. 후자가 전자로 표시되면 아무것도
+  // 검증하지 않은 실행이 '신뢰함'으로 보인다.
+  if (pairwise && judgeCheck === 'untrusted') {
     lines.push('')
     lines.push('⚠ 심판 신뢰성 실패 — 정성 판정 심판이 자가진단(A=A 검사)을 통과하지 못했습니다. 페어와이즈 결과를 신뢰하지 마세요.')
+  }
+  if (pairwise && judgeCheck === 'unchecked') {
+    lines.push('')
+    lines.push('⚠ 심판 자가진단 미수행 — 검사에 쓸 forced 실행이 없어 A=A 검사를 돌리지 못했습니다. 통과한 것이 아닙니다.')
+  }
+
+  if (args.casesDrifted) {
+    lines.push('')
+    lines.push('⚠ 케이스 파일이 기록 시점과 다릅니다 — 아래 점수는 지금의 cases.jsonl 로 옛 실행을 다시 채점한 결과입니다.')
   }
 
   if (meta.degradedBaseline && hasBaselineRuns) {
@@ -116,7 +180,9 @@ export const formatReport = (args: {
   }
 
   lines.push('')
-  lines.push(v.passed ? '판정  ✓ 합격' : `판정  ✗ 불합격 — ${v.reasons.join(', ')}`)
+  if (v.status === 'pass') lines.push('판정  ✓ 합격')
+  else if (v.status === 'fail') lines.push(`판정  ✗ 불합격 — ${v.reasons.join(', ')}`)
+  else lines.push(`판정  ? 판정 불가 — ${v.reasons.join(', ')}`)
 
   if (failures.length > 0) {
     lines.push('')

@@ -78,6 +78,20 @@ export const resolvePair = (first: Verdict, flipped: Verdict): 'skill' | 'baseli
 export const isJudgeTrustworthy = (sanity: { verdict: Verdict; rationale: string }): boolean =>
   sanity.verdict === 'tie' && sanity.rationale.trim() !== ''
 
+// boolean 으로는 "검사했고 통과" 와 "검사 자체를 안 함" 이 구분되지 않는다. 실제로 forced 가
+// 전부 error 였던 실행에서 자가진단 블록이 통째로 건너뛰어지고 초기값 true 가 그대로 파일에
+// 박혔다 — 아무 검증도 안 한 상태가 '신뢰함'으로 표시됐다 (외부 실측 보고 2026-07-28).
+export type JudgeCheck = 'trusted' | 'untrusted' | 'unchecked'
+
+// 구 verdict 파일은 boolean 이었다. true 는 두 상태가 섞인 값이므로 'trusted' 로 낙관하지 않고
+// 'unchecked' 로 내린다 — 옛 실행을 다시 채점해도 없던 신뢰가 생기지는 않는다.
+export const readJudgeCheck = (data: { judgeCheck?: unknown; judgeTrustworthy?: unknown }): JudgeCheck => {
+  if (data.judgeCheck === 'trusted' || data.judgeCheck === 'untrusted' || data.judgeCheck === 'unchecked') {
+    return data.judgeCheck
+  }
+  return data.judgeTrustworthy === false ? 'untrusted' : 'unchecked'
+}
+
 export type PairOutcome = 'skill' | 'baseline' | 'tie'
 
 export interface PairResult {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures, scoreRules, summarizeExecution, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
+import { scoreTrigger, collectFailures, forcedUsable, scoreRules, summarizeExecution, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
 import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
 import type { IndexEntry } from '../../plugins/skill-eval/skills/score/scripts/record'
 
@@ -62,6 +62,23 @@ describe('scoreTrigger', () => {
     const s = scoreTrigger(index, cases)
     expect(s.test.positive.total).toBe(0)
     expect(s.test.nError).toBe(2)
+  })
+
+  // 분모에서 빼는 것은 옳지만, 빠졌다는 사실이 안 남으면 남은 케이스만으로 100% 가 나와
+  // 게이트를 통과한다. 어느 케이스가 측정되지 않았는지 이름을 남긴다.
+  it('names the cases it had to drop so the shrunken denominator is visible', () => {
+    const index = [
+      entry('p1', 1, { status: 'error' }), entry('p1', 2, { status: 'timeout' }),
+      entry('p2', 1, { status: 'error' })
+    ]
+    const s = scoreTrigger(index, cases)
+    expect(s.test.undecided).toEqual(['p1'])
+    expect(s.train.undecided).toEqual(['p2'])
+  })
+
+  it('leaves undecided empty when every case had at least one usable repeat', () => {
+    const index = [entry('p1', 1, { status: 'error' }), entry('p1', 2, { triggered: true })]
+    expect(scoreTrigger(index, cases).test.undecided).toEqual([])
   })
 
   it('ignores non-with variants', () => {
@@ -154,7 +171,7 @@ describe('scoreRules', () => {
   ]
 
   const forced = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
-    ...entry(caseId, 1, over),
+    ...entry(caseId, 1, { triggered: true, ...over }),
     variant: 'forced'
   })
 
@@ -176,6 +193,23 @@ describe('scoreRules', () => {
     const s = scoreRules(index, ruleCases)
     expect(s.test.pass).toBe(0)
     expect(s.failures).toEqual([{ caseId: 'q1', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
+  })
+
+  // forced 는 슬래시 커맨드로 강제 발동시키는 변형이다. id 가 틀리면 존재하지 않는 커맨드가
+  // 프롬프트에 얹힌 채 모델이 그냥 답하고, 그 답이 스킬 점수로 계상됐다 — 아무도 parsed.triggered
+  // 를 확인하지 않았기 때문이다.
+  it('refuses to score an answer produced without the skill ever loading', () => {
+    const index = [forced('q1', { triggered: false, finalText: '## 변경 사항\n내용' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.test.total).toBe(0)
+    expect(s.failures[0].detail).toMatch(/발동하지 않았습니다/)
+  })
+
+  it('refuses to score a truncated answer — that measures the turn limit, not the skill', () => {
+    const index = [forced('q1', { truncated: true, terminalReason: 'max_turns', finalText: '## 변경 사항' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.test.total).toBe(0)
+    expect(s.failures[0].detail).toMatch(/잘렸습니다/)
   })
 
   it('excludes an errored forced run from pass/total but lists it as a failure — the shrunken denominator must be visible', () => {
@@ -214,7 +248,7 @@ describe('scoreRules', () => {
 
 describe('tokenDelta', () => {
   const forced = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
-    ...entry(caseId, 1, over),
+    ...entry(caseId, 1, { triggered: true, ...over }),
     variant: 'forced'
   })
 
@@ -269,10 +303,48 @@ describe('summarizeExecution', () => {
       { ...entry('q1', 1, { status: 'timeout' }), variant: 'forced' },
       { ...entry('q2', 1, { status: 'error' }), variant: 'without', durationMs: 5 }
     ]
-    expect(summarizeExecution(index)).toEqual({ ok: 1, total: 3, timeouts: 1, errors: 1, durationMs: 7 })
+    expect(summarizeExecution(index)).toEqual({ ok: 1, total: 3, timeouts: 1, errors: 1, durationMs: 7, costUsd: 0 })
   })
 
   it('is all zeros for an empty index', () => {
-    expect(summarizeExecution([])).toEqual({ ok: 0, total: 0, timeouts: 0, errors: 0, durationMs: 0 })
+    expect(summarizeExecution([])).toEqual({ ok: 0, total: 0, timeouts: 0, errors: 0, durationMs: 0, costUsd: 0 })
+  })
+})
+
+describe('forcedUsable', () => {
+  const run = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    caseId: 'q1', variant: 'forced', repeat: 1, file: 'f.jsonl', durationMs: 1,
+    parsed: {
+      triggered: true, truncated: false, skillReadFallback: false, finalText: 'x',
+      status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: 'm', loadedSkills: []
+    }
+  })
+  const withParsed = (over: Partial<IndexEntry['parsed']>): IndexEntry => {
+    const base = run()
+    return { ...base, parsed: { ...base.parsed, ...over } }
+  }
+
+  it('accepts a completed run that actually loaded the skill', () => {
+    expect(forcedUsable(run()).usable).toBe(true)
+  })
+
+  it('rejects an errored run and keeps the terminal reason for the failure list', () => {
+    const r = forcedUsable(withParsed({ status: 'error', terminalReason: 'api_error' }))
+    expect(r.usable).toBe(false)
+    expect(r.usable === false && r.kind).toBe('error')
+    expect(r.usable === false && r.detail).toContain('api_error')
+  })
+
+  it('keeps timeout distinguishable from a plain error', () => {
+    const r = forcedUsable(withParsed({ status: 'timeout', terminalReason: 'claude timed out after 600000ms' }))
+    expect(r.usable === false && r.kind).toBe('timeout')
+  })
+
+  it('rejects a truncated run', () => {
+    expect(forcedUsable(withParsed({ truncated: true })).usable).toBe(false)
+  })
+
+  it('rejects a run where the skill never loaded', () => {
+    expect(forcedUsable(withParsed({ triggered: false })).usable).toBe(false)
   })
 })
