@@ -1,4 +1,4 @@
 {"type":"system","subtype":"init","session_id":"s2","model":"claude-opus-4-8[1m]","tools":["Bash","Read"],"skills":["demo:write"],"plugins":[{"name":"demo","version":"0.1.0"}]}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll use the demo skill for this."}]},"session_id":"s2"}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Read","input":{"file_path":"/tmp/plugins/demo/skills/write/SKILL.md"}}]},"session_id":"s2"}
-{"type":"result","subtype":"success","is_error":false,"terminal_reason":"success","num_turns":2,"total_cost_usd":0.2,"usage":{"input_tokens":900,"output_tokens":150,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"done","session_id":"s2"}
+{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed","num_turns":2,"total_cost_usd":0.2,"usage":{"input_tokens":900,"output_tokens":150,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"done","session_id":"s2"}

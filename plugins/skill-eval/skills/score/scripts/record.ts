@@ -72,6 +72,7 @@ const errorRun = (reason: string): ParsedRun => ({
   status: /^\S+ timed out after \d+ms$/.test(reason) ? 'timeout' : 'error',
   terminalReason: reason,
   tokens: 0,
+  truncated: false,
   costUsd: 0,
   model: '',
   loadedSkills: []

@@ -1,0 +1,3 @@
+{"type":"system","subtype":"init","session_id":"s5","model":"claude-legacy","tools":["Skill"],"skills":["demo:write"]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Skill","input":{"skill":"demo:write"}}]},"session_id":"s5"}
+{"type":"result","terminal_reason":"completed","num_turns":2,"total_cost_usd":0.05,"usage":{"input_tokens":100,"output_tokens":50,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"done","session_id":"s5"}

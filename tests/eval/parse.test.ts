@@ -14,15 +14,47 @@ describe('parseClaudeStream', () => {
     expect(r.triggered).toBe(true)
     expect(r.skillReadFallback).toBe(false)
     expect(r.status).toBe('ok')
-    expect(r.terminalReason).toBe('success')
+    expect(r.terminalReason).toBe('completed')
   })
 
   it('collects final text, cost, tokens and model', () => {
     const r = parseClaudeStream(fixture('claude-triggered'), opts)
     expect(r.finalText).toBe('작성했습니다.')
     expect(r.costUsd).toBeCloseTo(0.1234)
-    expect(r.tokens).toBe(1500)
+    // 1200 in + 300 out + 2000 cache_creation + 5000 cache_read
+    expect(r.tokens).toBe(8500)
     expect(r.model).toBe('claude-opus-4-8[1m]')
+  })
+
+  it('counts cache tokens — they dwarf input+output and are most of real usage', () => {
+    const raw = '{"type":"system","subtype":"init","model":"m","skills":[]}\n' +
+                '{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed","result":"ok",' +
+                '"usage":{"input_tokens":10,"output_tokens":134,"cache_creation_input_tokens":14540,"cache_read_input_tokens":17536},' +
+                '"total_cost_usd":0.0315}\n'
+    expect(parseClaudeStream(raw, opts).tokens).toBe(32220)
+  })
+
+  it('treats a completed run as ok — the value the CLI actually emits', () => {
+    const r = parseClaudeStream(fixture('claude-triggered'), opts)
+    expect(r.status).toBe('ok')
+    expect(r.truncated).toBe(false)
+  })
+
+  it('classifies by is_error, not by subtype — an api_error reports subtype "success"', () => {
+    const r = parseClaudeStream(fixture('claude-auth-error'), opts)
+    expect(r.status).toBe('error')
+  })
+
+  it('falls back to the terminal_reason list when the CLI omits is_error', () => {
+    const r = parseClaudeStream(fixture('claude-legacy-no-is-error'), opts)
+    expect(r.status).toBe('ok')
+    expect(r.terminalReason).toBe('completed')
+  })
+
+  it('treats an unknown terminal_reason without is_error as an error', () => {
+    const raw = '{"type":"system","subtype":"init","model":"m","skills":[]}\n' +
+                '{"type":"result","terminal_reason":"something_new","result":"","usage":{}}\n'
+    expect(parseClaudeStream(raw, opts).status).toBe('error')
   })
 
   it('records the competing skill list from the init event', () => {
@@ -49,6 +81,11 @@ describe('parseClaudeStream', () => {
     expect(r.triggered).toBe(true)
   })
 
+  it('flags max_turns as truncated so the quality axis can skip a cut-off answer', () => {
+    expect(parseClaudeStream(fixture('claude-max-turns'), opts).truncated).toBe(true)
+    expect(parseClaudeStream(fixture('claude-triggered'), opts).truncated).toBe(false)
+  })
+
   it('ignores a Skill call for a different skill', () => {
     const raw = fixture('claude-triggered')
     const r = parseClaudeStream(raw, { ...opts, skillId: 'someone:else' })
@@ -71,7 +108,7 @@ describe('parseClaudeStream', () => {
   it('does not flag a Read of a sibling directory sharing the prefix', () => {
     const raw = '{"type":"system","subtype":"init","model":"test","skills":[]}\n' +
                 '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/plugins/demo/skills/write-v2/SKILL.md"}}]}}\n' +
-                '{"type":"result","terminal_reason":"success","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
+                '{"type":"result","is_error":false,"terminal_reason":"completed","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
     const r = parseClaudeStream(raw, opts)
     expect(r.skillReadFallback).toBe(false)
   })
@@ -79,7 +116,7 @@ describe('parseClaudeStream', () => {
   it('does not flag a Read of an unrelated path as fallback', () => {
     const raw = '{"type":"system","subtype":"init","model":"test","skills":[]}\n' +
                 '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/other/path/file.txt"}}]}}\n' +
-                '{"type":"result","terminal_reason":"success","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
+                '{"type":"result","is_error":false,"terminal_reason":"completed","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
     const r = parseClaudeStream(raw, opts)
     expect(r.skillReadFallback).toBe(false)
   })
@@ -87,7 +124,7 @@ describe('parseClaudeStream', () => {
   it('flags a Read of a file inside the skill directory', () => {
     const raw = '{"type":"system","subtype":"init","model":"test","skills":[]}\n' +
                 '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/tmp/plugins/demo/skills/write/SKILL.md"}}]}}\n' +
-                '{"type":"result","terminal_reason":"success","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
+                '{"type":"result","is_error":false,"terminal_reason":"completed","result":"ok","usage":{"input_tokens":0,"output_tokens":0},"total_cost_usd":0}\n'
     const r = parseClaudeStream(raw, opts)
     expect(r.skillReadFallback).toBe(true)
   })
@@ -96,10 +133,62 @@ describe('parseClaudeStream', () => {
     const raw = '{"type":"system","subtype":"init","model":"claude-opus-4-8[1m]","skills":["demo:write","other:thing"]}\n' +
                 '{"type":"assistant","message":{"content":[{"type":"text","text":"작성했습니다."}]}}\n' +
                 '{"type":"result", broken\n' +
-                '{"type":"result","terminal_reason":"success","result":"작성했습니다.","usage":{"input_tokens":800,"output_tokens":700},"total_cost_usd":0.1234}\n'
+                '{"type":"result","is_error":false,"terminal_reason":"completed","result":"작성했습니다.","usage":{"input_tokens":800,"output_tokens":700},"total_cost_usd":0.1234}\n'
     const r = parseClaudeStream(raw, opts)
     expect(r.status).toBe('ok')
-    expect(r.terminalReason).toBe('success')
+    expect(r.terminalReason).toBe('completed')
     expect(r.finalText).toBe('작성했습니다.')
+  })
+})
+
+// baseline(without)은 Skill·Read 를 차단당하면 셸로 우회한다. 실측에서 `cat …/SKILL.md` 로 읽고도
+// 오염 플래그가 false 로 남아 대조군이 오염된 채 품질 델타가 계산됐다 (2026-07-28).
+describe('parseClaudeStream · baseline 오염 탐지', () => {
+  const withEvents = (...events: string[]) =>
+    '{"type":"system","subtype":"init","model":"m","skills":[]}\n' +
+    events.map(e => `{"type":"assistant","message":{"content":[${e}]}}`).join('\n') + '\n' +
+    '{"type":"result","is_error":false,"terminal_reason":"completed","result":"ok","usage":{},"total_cost_usd":0}\n'
+
+  const toolUse = (name: string, input: Record<string, unknown>) =>
+    JSON.stringify({ type: 'tool_use', name, input })
+
+  it('flags a Bash cat of the installed SKILL.md even though the path is not the measured dir', () => {
+    const r = parseClaudeStream(fixture('claude-bash-read-fallback'), opts)
+    expect(r.skillReadFallback).toBe(true)
+  })
+
+  it('flags a Bash read that reaches the skill by the install.sh <plugin> directory name', () => {
+    const raw = withEvents(toolUse('Bash', { command: 'sed -n 1,40p ~/.codex/skills/demo/SKILL.md' }))
+    expect(parseClaudeStream(raw, opts).skillReadFallback).toBe(true)
+  })
+
+  it('flags a Bash read using the install.sh <plugin>-<skill> directory name', () => {
+    const raw = withEvents(toolUse('Bash', { command: 'cat ~/.gemini/skills/demo-write/SKILL.md' }))
+    expect(parseClaudeStream(raw, opts).skillReadFallback).toBe(true)
+  })
+
+  it('flags Grep and Glob that reach into the skill directory', () => {
+    expect(parseClaudeStream(withEvents(toolUse('Grep', { pattern: 'MR', path: '/tmp/plugins/demo/skills/write' })), opts).skillReadFallback).toBe(true)
+    expect(parseClaudeStream(withEvents(toolUse('Glob', { pattern: 'demo/skills/write/SKILL.md' })), opts).skillReadFallback).toBe(true)
+  })
+
+  it('does not flag a Bash command that merely mentions an unrelated SKILL.md', () => {
+    const raw = withEvents(toolUse('Bash', { command: 'cat ~/.claude/skills/other-thing/SKILL.md' }))
+    expect(parseClaudeStream(raw, opts).skillReadFallback).toBe(false)
+  })
+
+  it('does not flag a sibling skill whose name shares the prefix', () => {
+    const raw = withEvents(toolUse('Bash', { command: 'cat /x/write-v2/SKILL.md' }))
+    expect(parseClaudeStream(raw, opts).skillReadFallback).toBe(false)
+  })
+
+  // judge/mine 은 발동 판정이 필요 없어 skillId·skillDir 를 빈 문자열로 넘긴다. 후보 이름이 하나도
+  // 없으면 정규식이 빈 교대로 퇴화해 모든 SKILL.md 언급에 매치한다 — 반드시 끊어야 한다.
+  it('never flags anything when no skill is identified (judge/mine pass empty ids)', () => {
+    const empty = { skillId: '', skillDir: '' }
+    const raw = withEvents(toolUse('Bash', { command: 'cat /anything/at/all/SKILL.md' }))
+    expect(parseClaudeStream(raw, empty).skillReadFallback).toBe(false)
+    const readRaw = withEvents(toolUse('Read', { file_path: '/etc/hosts' }))
+    expect(parseClaudeStream(readRaw, empty).skillReadFallback).toBe(false)
   })
 })

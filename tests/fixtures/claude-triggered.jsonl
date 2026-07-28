@@ -1,4 +1,4 @@
 {"type":"system","subtype":"init","session_id":"s1","model":"claude-opus-4-8[1m]","tools":["Bash","Read","Skill"],"skills":["demo:write","other:thing"],"plugins":[{"name":"demo","version":"0.1.0"}]}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Skill","input":{"skill":"demo:write"}}]},"session_id":"s1"}
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"작성했습니다."}]},"session_id":"s1"}
-{"type":"result","subtype":"success","is_error":false,"terminal_reason":"success","num_turns":2,"total_cost_usd":0.1234,"usage":{"input_tokens":1200,"output_tokens":300,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"작성했습니다.","session_id":"s1"}
+{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed","num_turns":2,"total_cost_usd":0.1234,"usage":{"input_tokens":1200,"output_tokens":300,"cache_read_input_tokens":5000,"cache_creation_input_tokens":2000},"result":"작성했습니다.","session_id":"s1"}
