@@ -93,6 +93,7 @@ export const recordAll = async (args: {
   degradedBaseline?: boolean
   repoSha?: string
   runtime?: RuntimeName
+  casesHash?: string
   sleep?: (ms: number) => Promise<void>
   buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
   parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
@@ -173,7 +174,11 @@ export const recordAll = async (args: {
     judgeModel: null,
     loadedSkills: first?.parsed.loadedSkills ?? [],
     repoSha: args.repoSha ?? '',
-    casesHash: createHash('sha256').update(plan.map(p => p.caseId + p.prompt).join('\n')).digest('hex').slice(0, 12),
+    // 호출부(cmdRecord)가 케이스 배열로 계산한 'v2:' 지문을 넘긴다. plan 에는 split·expect 가
+    // 없어 plan 만으로는 report/judge 가 재계산해 대조할 수 없다 — 그래서 지문이 기록만 되고
+    // 아무도 안 읽는 값이었다. 폴백은 인자를 안 넘기는 테스트용이다.
+    casesHash: args.casesHash ??
+      createHash('sha256').update(plan.map(p => p.caseId + p.prompt).join('\n')).digest('hex').slice(0, 12),
     startedAt: new Date().toISOString(),
     degradedBaseline: args.degradedBaseline ?? true,
     runtime: args.runtime ?? 'claude'

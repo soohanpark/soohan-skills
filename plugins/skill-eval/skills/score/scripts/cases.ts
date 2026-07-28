@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 
 export interface EvalCase {
@@ -26,8 +27,13 @@ const parseCase = (raw: unknown): { case: EvalCase } | { error: string } => {
   if (typeof o.id !== 'string' || o.id === '') return { error: 'id: 비어 있지 않은 문자열이 필요합니다' }
   if (typeof o.prompt !== 'string' || o.prompt === '') return { error: 'prompt: 비어 있지 않은 문자열이 필요합니다' }
   if (o.expect !== 'trigger' && o.expect !== 'no-trigger') return { error: "expect: 'trigger' 또는 'no-trigger' 여야 합니다" }
-  const split = o.split ?? 'train'
-  if (split !== 'train' && split !== 'test') return { error: "split: 'train' 또는 'test' 여야 합니다" }
+  // 기본값을 두면 안 된다. split 을 모르고 빠뜨리면 조용히 train 으로 들어가 test 분모가 0이 되고,
+  // 판정 게이트가 전부 total > 0 으로 방어돼 있어 아무 사유도 안 쌓인 채 '합격'이 찍힌다
+  // (외부 실측 보고 2026-07-28).
+  const split = o.split
+  if (split !== 'train' && split !== 'test') {
+    return { error: "split: 'train' 또는 'test' 가 필요합니다 (필수 — test 가 판정 대상, train 은 튜닝용)" }
+  }
   if (o.source !== undefined && typeof o.source !== 'string') return { error: 'source: 문자열이 필요합니다' }
   if (o.must !== undefined && !isStringArray(o.must)) return { error: 'must: 문자열 배열이 필요합니다' }
   if (o.must_not !== undefined && !isStringArray(o.must_not)) return { error: 'must_not: 문자열 배열이 필요합니다' }
@@ -48,6 +54,21 @@ const parseCase = (raw: unknown): { case: EvalCase } | { error: string } => {
     }
   }
 }
+
+// 케이스 파일의 지문. record 가 meta 에 남기고 report·judge 가 다시 계산해 대조한다 —
+// 기록해 둔 런을 나중에 재채점할 때 그 사이 케이스가 바뀌었는지 알아낼 유일한 수단이다.
+// (실측 보고자는 기록 후 split 만 지우고 report 를 다시 돌려 조용한 합격을 재현했다.)
+// 'v2:' 접두사는 plan 기반이던 구 해시와 구분하기 위한 것이다 — 접두사가 없으면 읽는 쪽이 검사를 건너뛴다.
+export const hashCases = (cases: EvalCase[]): string =>
+  'v2:' + createHash('sha256')
+    .update(cases.map(c => [c.id, c.split, c.expect, c.prompt].join('\u0000')).join('\n'))
+    .digest('hex')
+    .slice(0, 12)
+
+// 기록된 지문과 지금 케이스 파일이 어긋났는가. 접두사 없는 구 해시(plan 기반)는 재계산할 수
+// 없으므로 조용히 넘긴다 — 거짓 경고가 쌓이면 진짜 경고까지 무시하게 된다.
+export const casesDrifted = (recordedHash: string | undefined, current: string): boolean =>
+  typeof recordedHash === 'string' && recordedHash.startsWith('v2:') && recordedHash !== current
 
 export const loadCases = (file: string): EvalCase[] => {
   const lines = readFileSync(file, 'utf8').split('\n')

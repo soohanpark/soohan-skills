@@ -5,7 +5,7 @@ import type { IndexEntry } from '../../plugins/skill-eval/skills/score/scripts/r
 
 const parsed = (over: Partial<IndexEntry['parsed']> = {}) => ({
   triggered: false, skillReadFallback: false, finalText: '',
-  status: 'ok' as const, terminalReason: 'success', tokens: 0, costUsd: 0,
+  status: 'ok' as const, terminalReason: 'completed', truncated: false, tokens: 0, costUsd: 0,
   model: 'm', loadedSkills: [], ...over
 })
 

@@ -222,7 +222,7 @@ describe('recordAll runtime injection (defaults to claude)', () => {
   it('uses an injected parse function instead of the claude default when supplied', async () => {
     const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
     const fakeParse = (): ParsedRun => ({
-      triggered: true, skillReadFallback: false, finalText: 'custom',
+      triggered: true, truncated: false, skillReadFallback: false, finalText: 'custom',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
     })
     await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
@@ -235,7 +235,7 @@ describe('recordAll runtime injection (defaults to claude)', () => {
     mkdirSync(out, { recursive: true })
     writeFileSync(join(out, 'with--a--r1.jsonl'), okStream)
     const fakeParse = (): ParsedRun => ({
-      triggered: true, skillReadFallback: false, finalText: 'from-skip-path',
+      triggered: true, truncated: false, skillReadFallback: false, finalText: 'from-skip-path',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
     })
     const res = await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
