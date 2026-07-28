@@ -7,11 +7,27 @@ export const deriveCriteria = (c: EvalCase, skillDescription: string): string =>
 
 // SKILL.md frontmatter 에서 description 값만 꺼낸다 — name: 같은 메타데이터가 기준에 섞이면
 // isRationaleOnTopic 의 어휘 검사가 그 잡음과의 겹침도 인정하게 된다 (설계 §8-2).
-// ponytail: 단일 라인 description 만 — 이 레포 규약이다. 접힌 YAML 블록(>-)이 필요해지면 추가.
+// 접힌/리터럴 YAML 블록(>-, |)도 읽는다. 이 레포는 단일 라인 규약이지만 측정 대상은 외부
+// 스킬이고 그쪽은 블록 형태를 흔히 쓴다.
+// 못 찾으면 빈 문자열이다. 폴백으로 프론트매터 전체를 돌려주면 바로 위 주석이 금지한 그 동작이
+// 된다 — 메타데이터가 심판 기준이 되고, 그 잡음과의 어휘 겹침만으로 근거가 on-topic 판정을 받아
+// 폐기 필터가 무력화된다. 호출부가 빈 값을 보고 멈추는 편이 낫다.
+// 블록 형태를 먼저 본다 — 단일 라인 패턴을 먼저 대면 "description: >-" 의 ">-" 자체를
+// 값으로 집어간다 ([ \t]* 가 0글자로 물러나면서 negative lookahead 를 비껴간다).
+const BLOCK = /^description:[ \t]*[|>][-+]?[ \t]*\r?\n((?:[ \t]+.*(?:\r?\n|$))+)/m
+const SINGLE_LINE = /^description:[ \t]*(.+)$/m
+const BLOCK_INDICATOR_ONLY = /^[|>][-+]?$/
+
 export const skillDescription = (skillMd: string): string => {
   const frontmatter = skillMd.split('---')[1] ?? ''
-  const m = /^description:\s*(.+)$/m.exec(frontmatter)
-  return (m ? m[1] : frontmatter).trim().replace(/^(['"])(.*)\1$/, '$2')
+  const block = BLOCK.exec(frontmatter)
+  if (block) return block[1].split('\n').map(l => l.trim()).filter(Boolean).join(' ')
+
+  const single = SINGLE_LINE.exec(frontmatter)
+  if (!single) return ''
+  const value = single[1].trim().replace(/^(['"])(.*)\1$/, '$2')
+  // 들여쓴 본문이 없는 깨진 블록 선언 — 값이 아니다
+  return BLOCK_INDICATOR_ONLY.test(value) ? '' : value
 }
 
 // 심판 호출은 한 턴짜리 텍스트 응답이다 — 도구가 필요 없다. 프롬프트에 녹화 트랜스크립트

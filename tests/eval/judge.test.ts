@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  buildJudgeArgs, deriveCriteria, buildJudgePrompt, parseVerdict, isRationaleOnTopic, resolvePair,
-  isJudgeTrustworthy, scorePairwise, skillDescription
+  buildJudgeArgs, buildJudgePrompt, deriveCriteria, isJudgeTrustworthy, isRationaleOnTopic, parseVerdict, readJudgeCheck, resolvePair, scorePairwise, skillDescription
 } from '../../plugins/skill-eval/skills/score/scripts/judge'
 import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
 
@@ -29,8 +28,8 @@ describe('skillDescription', () => {
     expect(skillDescription('---\ndescription: "따옴표 설명"\n---\n')).toBe('따옴표 설명')
   })
 
-  it('falls back to the whole frontmatter when no description key exists', () => {
-    expect(skillDescription('---\nname: run\n---\n')).toContain('name: run')
+  it('returns empty when no description key exists — never the whole frontmatter', () => {
+    expect(skillDescription('---\nname: run\n---\n')).toBe('')
   })
 })
 
@@ -180,5 +179,53 @@ describe('scorePairwise', () => {
     expect(s.rate).toBe(1)
     expect(s.win).toBe(1)
     expect(s.loss).toBe(0)
+  })
+})
+
+// 못 찾았을 때 프론트매터 전체를 돌려주면 name·allowed-tools 같은 메타데이터가 심판 기준이 되고,
+// isRationaleOnTopic 이 그 잡음과의 겹침만으로 근거를 통과시켜 폐기 필터가 무력화된다.
+// 바로 위 주석이 금지한 동작을 폴백이 하고 있었다.
+describe('skillDescription · 못 찾았을 때', () => {
+  const md = (body: string) => `---\n${body}\n---\n\n# 본문\n`
+
+  it('reads a folded YAML block, which external skills commonly use', () => {
+    const d = skillDescription(md('name: run\ndescription: >-\n  첫 줄이다.\n  둘째 줄이다.\nallowed-tools: Bash'))
+    expect(d).toBe('첫 줄이다. 둘째 줄이다.')
+  })
+
+  it('reads a literal YAML block too', () => {
+    expect(skillDescription(md('name: run\ndescription: |\n  한 줄짜리 설명'))).toBe('한 줄짜리 설명')
+  })
+
+  it('returns empty rather than handing the whole frontmatter to the judge', () => {
+    const d = skillDescription(md('name: run\nallowed-tools: Bash(git:*)\nlicense: MIT'))
+    expect(d).toBe('')
+    expect(d).not.toContain('allowed-tools')
+  })
+
+  it('returns empty when there is no frontmatter at all', () => {
+    expect(skillDescription('# 그냥 마크다운')).toBe('')
+  })
+})
+
+describe('readJudgeCheck', () => {
+  it('passes a modern tri-state value through', () => {
+    expect(readJudgeCheck({ judgeCheck: 'trusted' })).toBe('trusted')
+    expect(readJudgeCheck({ judgeCheck: 'untrusted' })).toBe('untrusted')
+    expect(readJudgeCheck({ judgeCheck: 'unchecked' })).toBe('unchecked')
+  })
+
+  it('maps a legacy false to untrusted', () => {
+    expect(readJudgeCheck({ judgeTrustworthy: false })).toBe('untrusted')
+  })
+
+  // 구 파일의 true 는 "검사하고 통과" 와 "검사 자체를 안 함" 이 섞인 값이다.
+  // 낙관해서 'trusted' 로 읽으면 없던 신뢰가 재채점 때 생긴다.
+  it('refuses to read a legacy true as trusted — it could not tell the two apart', () => {
+    expect(readJudgeCheck({ judgeTrustworthy: true })).toBe('unchecked')
+  })
+
+  it('defaults to unchecked for a file with neither field', () => {
+    expect(readJudgeCheck({})).toBe('unchecked')
   })
 })

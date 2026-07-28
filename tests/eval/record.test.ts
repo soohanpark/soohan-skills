@@ -385,3 +385,54 @@ describe('recursion guard', () => {
     expect(res.written).toBe(1)
   })
 })
+
+describe('중단·잘린 스트림 내성', () => {
+  // 60건짜리 실행이 40번째에서 끊기면 원본 40개는 남고 meta.json 만 없어서 --resume 이
+  // 거부했다 — 재개가 가장 필요한 상황에서 정확히 못 쓰는 상태였다.
+  it('writes meta.json before the first item so an interrupted run stays resumable', async () => {
+    const plan = planRuns(cases, { variants: ['with'], repeats: 1 })
+    let seenMidRun = false
+    const spyExec: Exec = async (argv) => {
+      seenMidRun = seenMidRun || existsSync(join(out, 'meta.json'))
+      return execOk(argv)
+    }
+    await recordAll({ plan, skill, outDir: out, exec: spyExec })
+    expect(seenMidRun).toBe(true)
+  })
+
+  it('keeps index.json in step with the runs already recorded', async () => {
+    const plan = planRuns(cases, { variants: ['with'], repeats: 1 })
+    const counts: number[] = []
+    const spyExec: Exec = async (argv) => {
+      counts.push(existsSync(join(out, 'index.json'))
+        ? JSON.parse(readFileSync(join(out, 'index.json'), 'utf8')).length
+        : -1)
+      return execOk(argv)
+    }
+    await recordAll({ plan, skill, outDir: out, exec: spyExec })
+    expect(counts).toEqual(counts.map((_, i) => i))
+  })
+
+  // stdout 이 비어 있지 않으면 exec 은 성공으로 resolve 한다. 잘린 스트림을 파일로 굳히면
+  // 이후 --resume 이 existsSync 로 건너뛰어 그 케이스는 영원히 에러로 남는다.
+  it('does not persist a stream that never produced a result event', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const halfStream: Exec = async () => ({
+      stdout: '{"type":"system","subtype":"init","model":"m","skills":[]}\n', durationMs: 1
+    })
+    const res = await recordAll({ plan, skill, outDir: out, exec: halfStream })
+    expect(res.errorRate).toBe(1)
+    expect(existsSync(join(out, 'with--a--r1.jsonl'))).toBe(false)
+  })
+
+  it('lets a later resume retry the case that produced no result event', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const halfStream: Exec = async () => ({
+      stdout: '{"type":"system","subtype":"init","model":"m","skills":[]}\n', durationMs: 1
+    })
+    await recordAll({ plan, skill, outDir: out, exec: halfStream })
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
+    expect(res.skipped).toBe(0)
+    expect(res.errorRate).toBe(0)
+  })
+})

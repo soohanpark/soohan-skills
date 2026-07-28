@@ -83,6 +83,9 @@ const TRANSIENT = /rate.?limit|overloaded|ECONNRESET|ECONNREFUSED|ETIMEDOUT|sock
 
 export const isTransient = (reason: string): boolean => TRANSIENT.test(reason)
 
+// 파서가 종료 이벤트를 못 찾았을 때 내는 사유들 — 스트림이 잘렸다는 뜻이므로 재시도 대상이다.
+const NO_RESULT_REASONS = new Set(['no_result_event', 'no_completion_event'])
+
 const defaultSleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 export const recordAll = async (args: {
@@ -115,6 +118,32 @@ export const recordAll = async (args: {
   let written = 0
   let skipped = 0
   let errors = 0
+  const startedAt = new Date().toISOString()
+
+  // index/meta 를 매 항목마다 갱신한다. 예전에는 루프를 다 돈 뒤에야 썼기 때문에, 60건짜리
+  // 실행이 40번째에서 끊기면 원본 40개는 디스크에 남고 meta.json 만 없어서 --resume 이
+  // "meta.json 이 없습니다" 로 거부했다 — 재개가 가장 필요한 상황에서 정확히 못 쓰는 상태였다.
+  // 파일이 작아 매번 쓰는 비용은 CLI 한 번의 왕복에 비하면 없는 것과 같다.
+  const persistIndex = () => {
+    const first = index.find(e => e.parsed.model !== '')
+    const meta: RunMeta = {
+      runId: outDir.split('/').pop() ?? outDir,
+      skillId: skill.id,
+      skillDir: skill.dir,
+      model: first?.parsed.model ?? '',
+      judgeModel: null,
+      loadedSkills: first?.parsed.loadedSkills ?? [],
+      repoSha: args.repoSha ?? '',
+      casesHash: args.casesHash ??
+        createHash('sha256').update(plan.map(p => p.caseId + p.prompt).join('\n')).digest('hex').slice(0, 12),
+      startedAt,
+      degradedBaseline: args.degradedBaseline ?? true,
+      runtime: args.runtime ?? 'claude'
+    }
+    writeFileSync(join(outDir, 'index.json'), JSON.stringify(index, null, 2))
+    writeFileSync(join(outDir, 'meta.json'), JSON.stringify(meta, null, 2))
+  }
+  persistIndex()
 
   for (const item of plan) {
     const target = join(outDir, item.file)
@@ -127,6 +156,7 @@ export const recordAll = async (args: {
       const parsed = parse(raw, { skillId: skill.id, skillDir: skill.dir })
       if (parsed.status !== 'ok') errors += 1
       index.push({ ...item, durationMs: 0, parsed })
+      persistIndex()
       continue
     }
 
@@ -156,36 +186,21 @@ export const recordAll = async (args: {
       result = await attempt()
     }
 
-    if (result.stdout !== null) writeFileSync(target, result.stdout)
+    // result 이벤트가 없는 stdout 은 잘린 스트림이다 (CLI 가 몇 줄 뱉고 죽은 경우).
+    // 파일로 굳히면 다음 --resume 이 existsSync 로 건너뛰어 이 케이스는 영원히 에러로 남는다.
+    // 남기지 않으면 재개가 다시 시도한다 — thrown exec 을 다루는 것과 같은 원칙이다.
+    const truncatedStream = NO_RESULT_REASONS.has(result.parsed.terminalReason)
+    if (result.stdout !== null && !truncatedStream) writeFileSync(target, result.stdout)
     const parsed = result.parsed
     const durationMs = result.durationMs
 
     written += 1
     if (parsed.status !== 'ok') errors += 1
     index.push({ ...item, durationMs, parsed })
+    persistIndex()
   }
 
-  const first = index.find(e => e.parsed.model !== '')
-  const meta: RunMeta = {
-    runId: outDir.split('/').pop() ?? outDir,
-    skillId: skill.id,
-    skillDir: skill.dir,
-    model: first?.parsed.model ?? '',
-    judgeModel: null,
-    loadedSkills: first?.parsed.loadedSkills ?? [],
-    repoSha: args.repoSha ?? '',
-    // 호출부(cmdRecord)가 케이스 배열로 계산한 'v2:' 지문을 넘긴다. plan 에는 split·expect 가
-    // 없어 plan 만으로는 report/judge 가 재계산해 대조할 수 없다 — 그래서 지문이 기록만 되고
-    // 아무도 안 읽는 값이었다. 폴백은 인자를 안 넘기는 테스트용이다.
-    casesHash: args.casesHash ??
-      createHash('sha256').update(plan.map(p => p.caseId + p.prompt).join('\n')).digest('hex').slice(0, 12),
-    startedAt: new Date().toISOString(),
-    degradedBaseline: args.degradedBaseline ?? true,
-    runtime: args.runtime ?? 'claude'
-  }
-
-  writeFileSync(join(outDir, 'index.json'), JSON.stringify(index, null, 2))
-  writeFileSync(join(outDir, 'meta.json'), JSON.stringify(meta, null, 2))
+  persistIndex()
 
   // errorRate 는 이번 호출에서 실행된 항목뿐 아니라 재개로 재구성된 항목까지
   // index 전체를 분모로 삼는다 — "이 실행 결과 전체를 신뢰할 수 있는가"에 답해야 하므로.

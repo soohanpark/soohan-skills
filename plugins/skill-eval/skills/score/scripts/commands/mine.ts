@@ -9,8 +9,9 @@ import {
   attachVariants, buildAugmentPrompt, classify, extractPrompts,
   keywordsFromDescription, parseVariants, toDraftCases
 } from '../mine.js'
+import { skillDescription } from '../judge.js'
 import { parseClaudeStream } from '../parse.js'
-import { evalsRoot, resolveSkill, slug } from '../paths.js'
+import { evalsRoot, resolveSkill, skillMdExists, slug } from '../paths.js'
 import { execClaude } from '../runtimes/claude.js'
 
 const walkJsonl = (dir: string): string[] => {
@@ -26,7 +27,13 @@ const walkJsonl = (dir: string): string[] => {
 export const cmdMine = async (skillArg: string, repoRoot: string): Promise<void> => {
   const EVALS = evalsRoot(repoRoot)
   const skill = resolveSkill(skillArg, repoRoot)
-  const description = read(join(skill.dir, 'SKILL.md'), 'utf8').split('---')[1] ?? ''
+  if (!skillMdExists(skill)) {
+    console.error(`✗ ${skill.dir}/SKILL.md 가 없습니다 — "${skillArg}" 가 ${skill.id} 로 해석됐습니다.`)
+    process.exit(1)
+  }
+  // 프론트매터 덩어리를 그대로 넘기면 name·allowed-tools·license 값까지 near-miss 판별
+  // 키워드가 되어 무관한 프롬프트가 negative 로 뽑힌다 — judge 와 같은 추출기를 쓴다.
+  const description = skillDescription(read(join(skill.dir, 'SKILL.md'), 'utf8'))
   const keywords = keywordsFromDescription(description)
 
   const sessionsRoot = join(homedir(), '.claude', 'projects')

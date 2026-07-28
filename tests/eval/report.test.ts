@@ -449,3 +449,28 @@ describe('formatDiff', () => {
     expect(out).toContain('추가된 경쟁 스킬')
   })
 })
+
+// Codex 파서는 이벤트에 스킬 목록이 없어 loadedSkills 를 항상 [] 로 낸다. 그때 '변화 없음' 을
+// 단언하면 이 하네스가 제공하는 유일한 교란변수 통제 문장이 근거 없이 출력된다.
+describe('formatDiff · 경쟁 스킬 목록이 비었을 때', () => {
+  const run = (runId: string, loadedSkills: string[], runtime: RunMeta['runtime'] = 'claude') => ({
+    meta: { ...meta, runId, loadedSkills, runtime },
+    score
+  })
+
+  it('does not claim an unchanged field when neither run reported one', () => {
+    const out = formatDiff(run('a', []), run('b', []))
+    expect(out).toContain('확인할 수 없습니다')
+    expect(out).not.toContain('스킬 자체의 변경에서 왔습니다')
+  })
+
+  it('still claims no change when both runs did report the same list', () => {
+    const out = formatDiff(run('a', ['x:y']), run('b', ['x:y']))
+    expect(out).toContain('스킬 자체의 변경에서 왔습니다')
+  })
+
+  it('still reports an actual change', () => {
+    const out = formatDiff(run('a', ['x:y']), run('b', ['x:y', 'z:w']))
+    expect(out).toContain('추가된 경쟁 스킬 1개')
+  })
+})

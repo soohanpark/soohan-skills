@@ -237,7 +237,12 @@ export const formatDiff = (
   const added = after.meta.loadedSkills.filter(s => !beforeSet.has(s))
   const removed = before.meta.loadedSkills.filter(s => !afterSet.has(s))
 
-  if (added.length === 0 && removed.length === 0) {
+  // 목록이 양쪽 다 비었으면 "경쟁 스킬이 없었다"가 아니라 "보고되지 않았다"일 수 있다.
+  // Codex 파서는 구조적으로 항상 빈 목록을 낸다 — 그때 '변화 없음' 을 단언하면, 이 하네스가
+  // 제공하는 유일한 교란변수 통제 문장이 근거 없이 출력된다.
+  if (before.meta.loadedSkills.length === 0 && after.meta.loadedSkills.length === 0) {
+    lines.push('  경쟁 스킬 목록이 비어 있습니다 — 경쟁 환경이 같았는지 확인할 수 없습니다.')
+  } else if (added.length === 0 && removed.length === 0) {
     lines.push('  경쟁 스킬 변화 없음 — 점수 변화는 스킬 자체의 변경에서 왔습니다.')
   } else {
     if (added.length > 0) lines.push(`  추가된 경쟁 스킬 ${added.length}개: ${added.join(', ')}`)

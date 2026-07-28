@@ -170,3 +170,77 @@ describe('attachVariants', () => {
     expect(attachVariants(original, [])).toEqual([])
   })
 })
+
+// 하네스가 로그에 끼워 넣는 type:"user" 이벤트(슬래시커맨드 확장, caveat, system-reminder)가
+// 실사용 발화로 채굴됐다. 끼어든 이벤트가 current 를 갈아치우는 바람에 뒤따르는 Skill 호출이
+// 그 가짜 프롬프트에 귀속되고, 진짜 발화는 triggeredSkills=[] 가 되어 negative 로 라벨링됐다.
+// 실제로 로컬 draft 에 "블인팀 MR 내용 작성해줘" 가 no-trigger 로 들어가 있었다.
+describe('extractPrompts · 하네스가 만든 이벤트', () => {
+  const line = (o: unknown) => JSON.stringify(o)
+  const user = (text: string, over: Record<string, unknown> = {}) =>
+    line({ type: 'user', message: { content: [{ type: 'text', text }] }, ...over })
+  const skillCall = (skill: string) =>
+    line({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Skill', input: { skill } }] } })
+
+  it('does not let a slash-command expansion steal the trigger from the real prompt', () => {
+    const jsonl = [
+      user('블인팀 MR 내용 작성해줘'),
+      user('The user invoked `/blin-mr` (full identifier: `/blin-mr:blin-mr`).\n\nActivate the skill.'),
+      skillCall('blin-mr:write')
+    ].join('\n')
+    const mined = extractPrompts(jsonl, 's.jsonl')
+    expect(mined).toHaveLength(1)
+    expect(mined[0].prompt).toBe('블인팀 MR 내용 작성해줘')
+    expect(mined[0].triggeredSkills).toEqual(['blin-mr:write'])
+  })
+
+  it('skips local-command caveats and stdout echoes', () => {
+    const jsonl = [
+      user('MR 써줘'),
+      user('<local-command-caveat>Caveat: generated while running local commands</local-command-caveat>'),
+      user('<command-name>/model</command-name>'),
+      user('<local-command-stdout>Set model to Opus</local-command-stdout>'),
+      skillCall('blin-mr:write')
+    ].join('\n')
+    const mined = extractPrompts(jsonl, 's.jsonl')
+    expect(mined.map(m => m.prompt)).toEqual(['MR 써줘'])
+    expect(mined[0].triggeredSkills).toEqual(['blin-mr:write'])
+  })
+
+  it('skips events the harness marked as meta', () => {
+    const jsonl = [user('진짜 발화'), user('주입된 컨텍스트', { isMeta: true })].join('\n')
+    expect(extractPrompts(jsonl, 's.jsonl').map(m => m.prompt)).toEqual(['진짜 발화'])
+  })
+
+  it('skips injected system reminders', () => {
+    const jsonl = [user('진짜 발화'), user('<system-reminder>배경 정보</system-reminder>')].join('\n')
+    expect(extractPrompts(jsonl, 's.jsonl').map(m => m.prompt)).toEqual(['진짜 발화'])
+  })
+
+  it('still records a genuine prompt that merely mentions a skill name', () => {
+    const jsonl = [user('blin-mr 스킬 고쳐줘')].join('\n')
+    expect(extractPrompts(jsonl, 's.jsonl')).toHaveLength(1)
+  })
+})
+
+// 같은 문구가 두 세션에 있고 한쪽만 발동했다면, 첫 등장으로 라벨을 고정하는 것은
+// readdir 순서에 판정을 맡기는 것이다 — 실제로 발동하는 프롬프트가 negative 로 굳을 수 있다.
+describe('classify · 중복 프롬프트의 라벨', () => {
+  const m = (prompt: string, skills: string[] = []) =>
+    ({ prompt, triggeredSkills: skills, sessionFile: 's.jsonl' })
+
+  it('adopts the occurrence that fired, whatever order the sessions were read in', () => {
+    const args = { skillId: 'demo:write', keywords: ['MR'] }
+    const notFirst = classify([m('MR 써줘'), m('MR 써줘', ['demo:write'])], args)
+    const firedFirst = classify([m('MR 써줘', ['demo:write']), m('MR 써줘')], args)
+    expect(notFirst.positives.map(p => p.prompt)).toEqual(['MR 써줘'])
+    expect(notFirst.nearMisses).toEqual([])
+    expect(firedFirst.positives.map(p => p.prompt)).toEqual(['MR 써줘'])
+  })
+
+  it('still treats a prompt that never fired as a near-miss when a keyword matches', () => {
+    const r = classify([m('MR 써줘'), m('MR 써줘')], { skillId: 'demo:write', keywords: ['MR'] })
+    expect(r.positives).toEqual([])
+    expect(r.nearMisses).toHaveLength(1)
+  })
+})
