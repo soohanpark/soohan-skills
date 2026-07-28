@@ -192,3 +192,34 @@ describe('parseClaudeStream · baseline 오염 탐지', () => {
     expect(parseClaudeStream(readRaw, empty).skillReadFallback).toBe(false)
   })
 })
+
+// 이 레포 규약은 내부 스킬명을 run·write·diff 처럼 짧게 쓴다. 그 이름을 단독으로 매칭하면
+// 남의 플러그인 SKILL.md 를 읽은 것까지 오염으로 세어, 멀쩡한 비교쌍이 조용히 폐기된다.
+describe('skillReadPattern · 짧은 내부 스킬명', () => {
+  const raw = (command: string) =>
+    '{"type":"system","subtype":"init","model":"m","skills":[]}\n' +
+    `{"type":"assistant","message":{"content":[${JSON.stringify({ type: 'tool_use', name: 'Bash', input: { command } })}]}}\n` +
+    '{"type":"result","is_error":false,"terminal_reason":"completed","result":"ok","usage":{},"total_cost_usd":0}\n'
+  const o = { skillId: 'demo:run', skillDir: '/repo/plugins/demo/skills/run' }
+
+  it('does not treat another plugin\'s same-named skill as contamination', () => {
+    expect(parseClaudeStream(raw('cat /x/otherplugin/skills/run/SKILL.md'), o).skillReadFallback).toBe(false)
+  })
+
+  it('still catches the measured skill in a commit-SHA cache layout', () => {
+    expect(parseClaudeStream(raw('cat ~/.claude/plugins/cache/mk/demo/fc030ea1/skills/run/SKILL.md'), o).skillReadFallback).toBe(true)
+  })
+
+  it('still catches the measured skill at its repo path', () => {
+    expect(parseClaudeStream(raw('sed -n 1,20p /repo/plugins/demo/skills/run/SKILL.md'), o).skillReadFallback).toBe(true)
+  })
+
+  it('catches the installed <plugin> directory name', () => {
+    expect(parseClaudeStream(raw('cat ~/.codex/skills/demo/SKILL.md'), o).skillReadFallback).toBe(true)
+  })
+
+  // 경로를 변수나 cd 로 감싸면 이름 패턴이 안 걸린다 — 측정 대상 절대경로가 커맨드에 있으면 잡는다.
+  it('catches a shell command that merely mentions the measured directory', () => {
+    expect(parseClaudeStream(raw('cd /repo/plugins/demo/skills/run && cat SKILL.md'), o).skillReadFallback).toBe(true)
+  })
+})

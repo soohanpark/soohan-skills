@@ -65,10 +65,12 @@ export const resolveSkill = (arg: string, repoRoot: string): SkillRef => {
     // 순간(예: <plugin>/fc030ea1e63b/skills/<skill>) "fc030ea1e63b:migrate" 같은 유령 id 가 나온다.
     // 모양 검증은 통과하므로 예외도 안 나고, 발동 판정이 항상 false 가 되어 발동률 0% 가 조용히
     // 찍힌다 — description 탓으로 오독하기 쉽다 (외부 실측 보고 2026-07-28).
+    // 개인 스킬 판정이 먼저다. 매니페스트 탐색은 위로 올라가므로, 레포 안의
+    // <repo>/.claude/skills/<name> 이 레포 루트의 plugin.json 을 집어 유령 접두사를 달 수 있다.
+    if (rawPlugin === PERSONAL_SKILL_ROOT) return { id: skill, dir }
+
     const fromManifest = pluginNameFromManifest(dir)
     if (fromManifest) return { id: `${fromManifest}:${skill}`, dir }
-
-    if (rawPlugin === PERSONAL_SKILL_ROOT) return { id: skill, dir }
 
     // 매니페스트가 없는 설치본용 폴백 — 마켓플레이스 캐시 레이아웃은 버전 한 칸 위가 플러그인이다
     const plugin = /^\d+\.\d+/.test(rawPlugin ?? '') ? parts.at(-4) : rawPlugin

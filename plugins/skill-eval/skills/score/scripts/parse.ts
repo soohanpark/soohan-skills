@@ -47,9 +47,18 @@ const classifyStatus = (result: Record<string, any>, terminalReason: string): Ru
 export const skillReadPattern = (opts: ParseOptions): RegExp | null => {
   const skillDirName = opts.skillDir.split('/').filter(Boolean).pop() ?? ''
   const pluginName = opts.skillId.split(':')[0] ?? ''
-  const candidates = [...new Set([skillDirName, pluginName, `${pluginName}-${skillDirName}`])]
-    .filter(n => n !== '' && n !== '-')
-    .map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const esc = (n: string) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const candidates: string[] = []
+  // 설치본은 플러그인 이름(또는 다중 스킬이면 <plugin>-<skill>)으로 디렉터리를 만든다 —
+  // 이 이름들은 충분히 고유해서 단독으로 써도 된다.
+  if (pluginName) candidates.push(esc(pluginName))
+  if (pluginName && skillDirName) candidates.push(esc(`${pluginName}-${skillDirName}`))
+  // 내부 스킬명은 이 레포 규약상 run·write·diff 같은 짧은 이름이라 단독으로 쓰면 남의
+  // 플러그인 SKILL.md 까지 잡는다. 반드시 플러그인 이름과 함께 본다 — 사이에 버전/커밋 SHA
+  // 한 칸이 끼는 캐시 레이아웃까지 덮으면 충분하다.
+  if (pluginName && skillDirName) candidates.push(`${esc(pluginName)}(?:/[^/]+)?/skills/${esc(skillDirName)}`)
+  // 후보가 하나도 없으면 null 이다. 빈 교대(alternation)로 정규식을 만들면 모든 SKILL.md
+  // 언급에 매치한다 — judge·mine 이 skillId/skillDir 를 빈 문자열로 넘기므로 반드시 필요한 가드다.
   if (candidates.length === 0) return null
   return new RegExp(`(^|[/'"\\s])(${candidates.join('|')})/SKILL\\.md`)
 }
@@ -111,7 +120,9 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
             skillReadFallback = true
           }
         }
-        if (block.name === 'Bash' && namesSkillFile(block.input?.command)) {
+        if (block.name === 'Bash' && typeof block.input?.command === 'string' &&
+            (namesSkillFile(block.input.command) ||
+             (opts.skillDir !== '' && block.input.command.includes(opts.skillDir)))) {
           skillReadFallback = true
         }
         if ((block.name === 'Grep' || block.name === 'Glob') &&

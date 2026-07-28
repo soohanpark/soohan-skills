@@ -226,9 +226,12 @@ describe('scoreRules', () => {
     expect(s.failures[0].kind).toBe('timeout')
   })
 
-  it('excludes a case with no forced run at all', () => {
+  // 실행 기록이 없는 케이스도 분모에서 빠진 사실을 남긴다 — 판정이 그 축소를 봐야 한다.
+  it('records a case with no forced run at all as undecided, not as absent', () => {
     const s = scoreRules([], ruleCases)
-    expect(s).toEqual({ train: { pass: 0, total: 0 }, test: { pass: 0, total: 0 }, failures: [] })
+    expect(s.test).toEqual({ pass: 0, total: 0, undecided: ['q1'] })
+    expect(s.train).toEqual({ pass: 0, total: 0, undecided: ['q3'] })
+    expect(s.failures).toEqual([])
   })
 
   it('ignores with/without runs for the same case id — only forced counts', () => {
@@ -240,8 +243,9 @@ describe('scoreRules', () => {
   it('keeps a train-split rule failure out of the test tally, though it still appears in failures', () => {
     const index = [forced('q3', { finalText: '엉뚱한 내용' })]
     const s = scoreRules(index, ruleCases)
-    expect(s.train).toEqual({ pass: 0, total: 1 })
-    expect(s.test).toEqual({ pass: 0, total: 0 })
+    expect(s.train).toEqual({ pass: 0, total: 1, undecided: [] })
+    // q1 은 test split 인데 forced 기록이 없다 — 분모에서 빠진 사실이 남아야 한다
+    expect(s.test).toEqual({ pass: 0, total: 0, undecided: ['q1'] })
     expect(s.failures).toEqual([{ caseId: 'q3', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
   })
 })
@@ -346,5 +350,65 @@ describe('forcedUsable', () => {
 
   it('rejects a run where the skill never loaded', () => {
     expect(forcedUsable(withParsed({ triggered: false })).usable).toBe(false)
+  })
+})
+
+describe('scoreTrigger · 실행 기록이 없는 케이스', () => {
+  // record 가 중간에 끊기면 index 에 앞부분만 담긴다. 조용히 넘기면 부분 index 가 완주한
+  // 런과 구분 없이 채점돼 "돌린 것만 세서 100%" 가 나온다.
+  it('records a planned case with no runs as notRun', () => {
+    const s = scoreTrigger([entry('p1', 1, { triggered: true })], cases)
+    expect(s.test.notRun).toEqual(['n1'])
+    expect(s.train.notRun).toEqual(['p2'])
+  })
+
+  it('leaves notRun empty for a complete index', () => {
+    const s = scoreTrigger([entry('p1', 1), entry('n1', 1), entry('p2', 1)], cases)
+    expect(s.test.notRun).toEqual([])
+    expect(s.train.notRun).toEqual([])
+  })
+
+  it('keeps notRun and undecided distinct — one never ran, the other ran and errored', () => {
+    const s = scoreTrigger([entry('p1', 1, { status: 'error' }), entry('n1', 1)], cases)
+    expect(s.test.undecided).toEqual(['p1'])
+    expect(s.test.notRun).toEqual([])
+    expect(s.train.notRun).toEqual(['p2'])
+  })
+})
+
+describe('tokenDelta · 비교 가능한 짝만 센다', () => {
+  const f = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, { triggered: true, ...over }), variant: 'forced'
+  })
+  const w = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, over), variant: 'without'
+  })
+
+  it('drops a truncated forced run — its tokens measure the turn limit, not the skill', () => {
+    expect(tokenDelta([f('q1', { tokens: 5000, truncated: true }), w('q1', { tokens: 100 })])).toBe(null)
+  })
+
+  it('drops a forced run where the skill never loaded', () => {
+    expect(tokenDelta([f('q1', { tokens: 5000, triggered: false }), w('q1', { tokens: 100 })])).toBe(null)
+  })
+
+  it('drops a truncated baseline rather than comparing against a cut-off answer', () => {
+    const d = tokenDelta([f('q1', { tokens: 400 }), w('q1', { tokens: 9000, truncated: true })])
+    expect(d).toEqual({ forced: 400, without: null })
+  })
+
+  it('still pairs runs that are usable on both sides', () => {
+    expect(tokenDelta([f('q1', { tokens: 400 }), w('q1', { tokens: 900 })])).toEqual({ forced: 400, without: 900 })
+  })
+})
+
+describe('summarizeExecution · 비용 합산', () => {
+  it('adds up what each run cost', () => {
+    const index = [
+      entry('p1', 1, { costUsd: 0.1 }),
+      { ...entry('p1', 2, { costUsd: 0.25 }), variant: 'forced' as const },
+      entry('p1', 3, { costUsd: 0 })
+    ]
+    expect(summarizeExecution(index).costUsd).toBeCloseTo(0.35)
   })
 })

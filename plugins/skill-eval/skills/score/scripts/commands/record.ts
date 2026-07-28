@@ -145,6 +145,7 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
   const { runtime: runtimeFlag, resume } = parseRecordFlags(flags)
   const cases = loadCases(file)
   const casesHash = hashCases(cases)
+  let recordedHash = casesHash
   const runId = resume ?? runDirName(skill.id, new Date())
   let runtimeName = parseRuntimeFlag(runtimeFlag, detectRuntime())
   if (resume) {
@@ -154,7 +155,13 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
       process.exit(1)
     }
     try {
-      runtimeName = checkResume(JSON.parse(readFileSync(metaFile, 'utf8')), skill.id, runtimeFlag, casesHash)
+      const resumedMeta = JSON.parse(readFileSync(metaFile, 'utf8'))
+      runtimeName = checkResume(resumedMeta, skill.id, runtimeFlag, casesHash)
+      // 재개는 기존 원본을 재사용한다. 지문을 지금 값으로 덮으면 대조할 수 없던 구 포맷 런이
+      // 갑자기 '검증된' 것처럼 보인다 — 원래 값을 그대로 남긴다.
+      if (typeof resumedMeta.casesHash === 'string' && resumedMeta.casesHash !== '') {
+        recordedHash = resumedMeta.casesHash
+      }
     } catch (e) {
       console.error(`✗ ${(e as Error).message}`)
       process.exit(1)
@@ -164,7 +171,7 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
   const runtime = RUNTIMES[runtimeName]
   const plan = buildRecordPlan(cases, runtime.qualityVariants)
   const res = await recordAll({
-    plan, skill, casesHash,
+    plan, skill, casesHash: recordedHash,
     outDir: join(evalsRoot(repoRoot), 'runs', runId),
     exec: runtime.exec,
     buildArgsFn: runtime.buildArgs,

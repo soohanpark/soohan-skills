@@ -118,8 +118,8 @@ describe('hashCases', () => {
     expect(hashCases([c()])).toBe(hashCases([c()]))
   })
 
-  it('is tagged v2 so plan-based hashes from older runs are recognisably different', () => {
-    expect(hashCases([c()])).toMatch(/^v2:/)
+  it('is tagged with a format version so readers know whether they can recompute it', () => {
+    expect(hashCases([c()])).toMatch(/^v3:/)
   })
 
   it('changes when split changes — the exact edit that faked a pass', () => {
@@ -140,20 +140,52 @@ describe('hashCases', () => {
 })
 
 describe('casesDrifted', () => {
-  it('reports drift when a v2 hash no longer matches the case file', () => {
-    expect(casesDrifted('v2:aaaaaaaaaaaa', 'v2:bbbbbbbbbbbb')).toBe(true)
+  it('reports drift when a current-format hash no longer matches the case file', () => {
+    expect(casesDrifted('v3:aaaaaaaaaaaa', 'v3:bbbbbbbbbbbb')).toBe(true)
   })
 
   it('is quiet when the hash still matches', () => {
-    expect(casesDrifted('v2:aaaaaaaaaaaa', 'v2:aaaaaaaaaaaa')).toBe(false)
+    expect(casesDrifted('v3:aaaaaaaaaaaa', 'v3:aaaaaaaaaaaa')).toBe(false)
   })
 
   // 접두사 없는 해시는 plan 기반이라 재계산할 수 없다. 거짓 경고를 내면 진짜 경고까지 무시하게 된다.
-  it('stays quiet for a pre-v2 hash it cannot recompute', () => {
-    expect(casesDrifted('a1b2c3d4e5f6', 'v2:bbbbbbbbbbbb')).toBe(false)
+  // 재계산할 수 없는 옛 포맷으로는 같다고도 다르다고도 말할 수 없다. 거짓 경고를 내면 진짜 경고까지 무시하게 된다.
+  it('stays quiet for an older-format hash it cannot recompute', () => {
+    expect(casesDrifted('a1b2c3d4e5f6', 'v3:bbbbbbbbbbbb')).toBe(false)
+    expect(casesDrifted('v2:aaaaaaaaaaaa', 'v3:bbbbbbbbbbbb')).toBe(false)
   })
 
   it('stays quiet when the run predates the field entirely', () => {
-    expect(casesDrifted(undefined, 'v2:bbbbbbbbbbbb')).toBe(false)
+    expect(casesDrifted(undefined, 'v3:bbbbbbbbbbbb')).toBe(false)
+  })
+})
+
+// 지문이 채점에 쓰이는 필드를 다 담지 않으면, 판정을 뒤집는 편집이 흔적 없이 지나간다.
+describe('hashCases · 채점 규칙 변경도 지문에 남는다', () => {
+  const c = (over: Record<string, unknown> = {}) => ({
+    id: 'a', prompt: 'x', expect: 'trigger' as const, split: 'test' as const, ...over
+  })
+
+  it('changes when a must rule is added, edited or removed', () => {
+    const none = hashCases([c()])
+    const one = hashCases([c({ must: ['## 변경 사항'] })])
+    const edited = hashCases([c({ must: ['## 변경'] })])
+    expect(one).not.toBe(none)
+    expect(edited).not.toBe(one)
+  })
+
+  it('changes when must_not, qualitative or criteria change', () => {
+    const base = hashCases([c()])
+    expect(hashCases([c({ must_not: ['```diff'] })])).not.toBe(base)
+    expect(hashCases([c({ qualitative: true })])).not.toBe(base)
+    expect(hashCases([c({ criteria: '템플릿을 채웠는가' })])).not.toBe(base)
+  })
+
+  it('does not confuse a must rule with a must_not rule of the same text', () => {
+    expect(hashCases([c({ must: ['x'] })])).not.toBe(hashCases([c({ must_not: ['x'] })]))
+  })
+
+  it('treats an absent rule and an empty rule list as the same case', () => {
+    expect(hashCases([c({ must: [] })])).toBe(hashCases([c()]))
   })
 })

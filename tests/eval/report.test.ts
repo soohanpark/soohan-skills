@@ -5,8 +5,8 @@ import type { PairwiseScore } from '../../plugins/skill-eval/skills/score/script
 import type { RunMeta } from '../../plugins/skill-eval/skills/score/scripts/record'
 
 const score: TriggerScore = {
-  train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], undecided: [], nError: 0 },
-  test: { positive: { hit: 12, total: 13 }, negative: { falseHit: 1, total: 12 }, unstable: ['y', 'z'], undecided: [], nError: 1 }
+  train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], undecided: [], notRun: [], nError: 0 },
+  test: { positive: { hit: 12, total: 13 }, negative: { falseHit: 1, total: 12 }, unstable: ['y', 'z'], undecided: [], notRun: [], nError: 1 }
 }
 
 const meta: RunMeta = {
@@ -42,31 +42,31 @@ describe('formatTokenCount', () => {
 
 describe('verdict', () => {
   it('passes when positives are at least 90% and false hits at most 10%', () => {
-    expect(verdict(score).status).toBe('pass')
+    expect(verdict({ score: score }).status).toBe('pass')
   })
 
   it('fails and names the metric when the positive rate is too low', () => {
     const low = { ...score, test: { ...score.test, positive: { hit: 5, total: 13 } } }
-    const v = verdict(low)
+    const v = verdict({ score: low })
     expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/발동률/)
   })
 
   it('fails when the false trigger rate is too high', () => {
     const bad = { ...score, test: { ...score.test, negative: { falseHit: 6, total: 12 } } }
-    expect(verdict(bad).status).toBe('fail')
+    expect(verdict({ score: bad }).status).toBe('fail')
   })
 
   it('ignores the rules gate when no rules were scored (total 0)', () => {
-    expect(verdict(score, { pass: 0, total: 0 }).status).toBe('pass')
+    expect(verdict({ score: score, rules: { pass: 0, total: 0, undecided: [] } }).status).toBe('pass')
   })
 
   it('passes when the must/must_not pass rate is at least 90%', () => {
-    expect(verdict(score, { pass: 9, total: 10 }).status).toBe('pass')
+    expect(verdict({ score: score, rules: { pass: 9, total: 10, undecided: [] } }).status).toBe('pass')
   })
 
   it('fails and names must/must_not when the rule pass rate is too low', () => {
-    const v = verdict(score, { pass: 5, total: 10 })
+    const v = verdict({ score: score, rules: { pass: 5, total: 10, undecided: [] } })
     expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/must\/must_not/)
   })
@@ -102,7 +102,7 @@ describe('formatReport', () => {
   })
 
   it('adds a 품질 section with the must/must_not pass rate when rules were scored', () => {
-    const out = formatReport({ meta, score, failures: [], rules: { pass: 9, total: 10 } })
+    const out = formatReport({ meta, score, failures: [], rules: { pass: 9, total: 10, undecided: [] } })
     expect(out).toContain('품질')
     expect(out).toContain('9/10')
     expect(out).toContain('90%')
@@ -114,26 +114,26 @@ describe('formatReport', () => {
   })
 
   it('omits the 품질 section when rules total is zero', () => {
-    const out = formatReport({ meta, score, failures: [], rules: { pass: 0, total: 0 } })
+    const out = formatReport({ meta, score, failures: [], rules: { pass: 0, total: 0, undecided: [] } })
     expect(out).not.toContain('품질')
   })
 })
 
 describe('verdict with pairwise', () => {
   it('passes when the skill wins at least 60% of decided pairs', () => {
-    expect(verdict(score, undefined, pairwise, 'trusted').status).toBe('pass')
+    expect(verdict({ score: score, pairwise: pairwise, judgeCheck: 'trusted' }).status).toBe('pass')
   })
 
   it('fails when the win rate is near chance', () => {
     const coin: PairwiseScore = { win: 3, loss: 3, tie: 0, discarded: 0, rate: 0.5 }
-    const v = verdict(score, undefined, coin, 'trusted')
+    const v = verdict({ score: score, pairwise: coin, judgeCheck: 'trusted' })
     expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/존재 의미/)
   })
 
   it('ignores pairwise entirely when no pair was decided', () => {
     const none: PairwiseScore = { win: 0, loss: 0, tie: 2, discarded: 0, rate: null }
-    expect(verdict(score, undefined, none, 'trusted').status).toBe('pass')
+    expect(verdict({ score: score, pairwise: none, judgeCheck: 'trusted' }).status).toBe('pass')
   })
 })
 
@@ -143,60 +143,60 @@ describe('verdict with judgeCheck', () => {
   const losing: PairwiseScore = { win: 1, loss: 5, tie: 0, discarded: 0, rate: 1 / 6 }
 
   it('is undecidable — not a pass — when the judge failed its self-check', () => {
-    const v = verdict(score, undefined, losing, 'untrusted')
+    const v = verdict({ score: score, pairwise: losing, judgeCheck: 'untrusted' })
     expect(v.status).toBe('undecidable')
     expect(v.reasons.join(' ')).toMatch(/통과하지 못해/)
     expect(v.reasons.join(' ')).not.toMatch(/존재 의미/)
   })
 
   it('is undecidable when the self-check never ran', () => {
-    const v = verdict(score, undefined, losing, 'unchecked')
+    const v = verdict({ score: score, pairwise: losing, judgeCheck: 'unchecked' })
     expect(v.status).toBe('undecidable')
     expect(v.reasons.join(' ')).toMatch(/수행되지 않아/)
   })
 
   it('defaults to unchecked rather than assuming a trustworthy judge', () => {
-    expect(verdict(score, undefined, losing).status).toBe('undecidable')
+    expect(verdict({ score: score, pairwise: losing }).status).toBe('undecidable')
   })
 
   it('applies the pairwise threshold only once the judge is trusted', () => {
-    const v = verdict(score, undefined, losing, 'trusted')
+    const v = verdict({ score: score, pairwise: losing, judgeCheck: 'trusted' })
     expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/존재 의미/)
   })
 
   it('stays quiet about the judge when there is no pairwise data at all', () => {
-    expect(verdict(score, undefined, undefined, 'unchecked').status).toBe('pass')
+    expect(verdict({ score: score, pairwise: undefined, judgeCheck: 'unchecked' }).status).toBe('pass')
   })
 })
 
 // split 을 안 적으면 test 분모가 전부 0이 되고, 게이트가 하나도 안 돌아 '✓ 합격' 이 찍혔다.
 describe('verdict · 측정이 성립하지 않은 실행', () => {
   const emptyTest: TriggerScore = {
-    train: { positive: { hit: 2, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], nError: 0 },
-    test: { positive: { hit: 0, total: 0 }, negative: { falseHit: 0, total: 0 }, unstable: [], undecided: [], nError: 0 }
+    train: { positive: { hit: 2, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], notRun: [], nError: 0 },
+    test: { positive: { hit: 0, total: 0 }, negative: { falseHit: 0, total: 0 }, unstable: [], undecided: [], notRun: [], nError: 0 }
   }
 
   it('is undecidable when no gate could be evaluated', () => {
-    const v = verdict(emptyTest)
+    const v = verdict({ score: emptyTest })
     expect(v.status).toBe('undecidable')
     expect(v.reasons.join(' ')).toMatch(/split/)
   })
 
   it('is still undecidable when only train has numbers, however good they look', () => {
     const perfectTrain = { ...emptyTest, train: { ...emptyTest.train, positive: { hit: 3, total: 3 } } }
-    expect(verdict(perfectTrain).status).toBe('undecidable')
+    expect(verdict({ score: perfectTrain }).status).toBe('undecidable')
   })
 
   it('becomes decidable as soon as one test gate has a denominator', () => {
     const oneGate = { ...emptyTest, test: { ...emptyTest.test, positive: { hit: 1, total: 1 } } }
-    expect(verdict(oneGate).status).toBe('pass')
+    expect(verdict({ score: oneGate }).status).toBe('pass')
   })
 
   // 에러로 빠진 케이스가 조용히 분모를 줄이면 남은 한 건이 100% 를 만들어 게이트를 통과시킨다.
   it('is undecidable when test cases dropped out of the denominator on errors', () => {
     const dropped = { ...score, test: { ...score.test, undecided: ['p-002', 'p-003'] } }
-    const v = verdict(dropped)
+    const v = verdict({ score: dropped })
     expect(v.status).toBe('undecidable')
     expect(v.reasons.join(' ')).toMatch(/p-002/)
   })
@@ -206,7 +206,7 @@ describe('verdict · 측정이 성립하지 않은 실행', () => {
       ...score,
       test: { ...score.test, positive: { hit: 1, total: 13 }, undecided: ['p-002'] }
     }
-    const v = verdict(dropped)
+    const v = verdict({ score: dropped })
     expect(v.status).toBe('fail')
     expect(v.reasons.join(' ')).toMatch(/발동률/)
     expect(v.reasons.join(' ')).toMatch(/p-002/)
@@ -228,7 +228,7 @@ describe('formatReport with pairwise', () => {
   it('notes discarded off-topic verdicts when present', () => {
     const some: PairwiseScore = { win: 2, loss: 1, tie: 0, discarded: 3, rate: 2 / 3 }
     const out = formatReport({ meta, score, failures: [], pairwise: some })
-    expect(out).toContain('기준 밖 근거로 폐기된 판정 3건')
+    expect(out).toContain('폐기된 판정 3건')
   })
 })
 
@@ -258,8 +258,8 @@ describe('formatReport with judgeCheck', () => {
 
 describe('formatReport · 판정 3상태와 비용', () => {
   const emptyTest: TriggerScore = {
-    train: { positive: { hit: 2, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], nError: 0 },
-    test: { positive: { hit: 0, total: 0 }, negative: { falseHit: 0, total: 0 }, unstable: [], undecided: [], nError: 0 }
+    train: { positive: { hit: 2, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], notRun: [], nError: 0 },
+    test: { positive: { hit: 0, total: 0 }, negative: { falseHit: 0, total: 0 }, unstable: [], undecided: [], notRun: [], nError: 0 }
   }
 
   it('prints 판정 불가 instead of a tick when nothing was measured', () => {
@@ -303,7 +303,7 @@ describe('formatReport · 판정 3상태와 비용', () => {
 
 describe('formatReport with rules and pairwise together', () => {
   it('renders a single 품질 header with both the must/must_not and pairwise sub-lines', () => {
-    const out = formatReport({ meta, score, failures: [], rules: { pass: 9, total: 10 }, pairwise })
+    const out = formatReport({ meta, score, failures: [], rules: { pass: 9, total: 10, undecided: [] }, pairwise })
     expect(out.match(/품질/g)?.length).toBe(1)
     expect(out).toContain('must/must_not')
     expect(out).toContain('9/10')
@@ -472,5 +472,99 @@ describe('formatDiff · 경쟁 스킬 목록이 비었을 때', () => {
   it('still reports an actual change', () => {
     const out = formatDiff(run('a', ['x:y']), run('b', ['x:y', 'z:w']))
     expect(out).toContain('추가된 경쟁 스킬 1개')
+  })
+})
+
+// 적대적 리뷰가 확인한 구멍들 — 전부 "측정이 성립하지 않았는데 합격이 찍힌다" 의 변주다.
+describe('verdict · 측정 붕괴를 판정이 본다', () => {
+  const base: TriggerScore = {
+    train: { positive: { hit: 3, total: 3 }, negative: { falseHit: 0, total: 1 }, unstable: [], undecided: [], notRun: [], nError: 0 },
+    test: { positive: { hit: 2, total: 2 }, negative: { falseHit: 0, total: 2 }, unstable: [], undecided: [], notRun: [], nError: 0 }
+  }
+
+  // forced 가 스킬 없이 낸 답이면 품질 근거로 못 쓴다. 그렇게 전부 빠지면 must/must_not
+  // 게이트가 그냥 건너뛰어져, 규칙을 어긴 답이 있는데도 '✓ 합격' 이 찍혔다.
+  it('is undecidable when every must/must_not case dropped out of the denominator', () => {
+    const v = verdict({ score: base, rules: { pass: 0, total: 0, undecided: ['q1', 'q2'] } })
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/must\/must_not test 케이스 2건/)
+  })
+
+  it('is undecidable even when the cases that did get scored all passed', () => {
+    const v = verdict({ score: base, rules: { pass: 1, total: 1, undecided: ['q2', 'q3', 'q4'] } })
+    expect(v.status).toBe('undecidable')
+  })
+
+  it('passes when the rule denominator is intact', () => {
+    expect(verdict({ score: base, rules: { pass: 1, total: 1, undecided: [] } }).status).toBe('pass')
+  })
+
+  // record 가 중간에 끊기면 index 에 앞부분만 담긴다. 그 부분 index 를 완주한 런처럼 채점하면
+  // "돌린 것만 세서 100%" 가 나온다.
+  it('is undecidable when some test cases have no run recorded at all', () => {
+    const partial = { ...base, test: { ...base.test, notRun: ['p-004', 'p-005'] } }
+    const v = verdict({ score: partial })
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/실행 기록이 없습니다/)
+    expect(v.reasons.join(' ')).toMatch(/p-004/)
+  })
+
+  // negative 만으로 게이트가 채워지면 "오발동은 안 한다" 만 확인하고 "발동은 하는가" 는
+  // 한 번도 재지 않은 채 통과한다.
+  it('is undecidable when the test split never measured a positive', () => {
+    const negOnly = { ...base, test: { ...base.test, positive: { hit: 0, total: 0 } } }
+    const v = verdict({ score: negOnly })
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/positive 케이스가 없습니다/)
+  })
+
+  // qualitative: true 를 선언해 놓고 judge 를 안 돌리면 정성 축은 잰 것이 아니라 안 잰 것이다.
+  it('is undecidable when qualitative cases were declared but judge never ran', () => {
+    const v = verdict({ score: base, qualitativeAwaitingJudge: 2 })
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/judge 를 돌리지 않았습니다/)
+  })
+
+  it('stops complaining about judge once pairwise data exists', () => {
+    const decided: PairwiseScore = { win: 3, loss: 0, tie: 0, discarded: 0, rate: 1 }
+    expect(verdict({ score: base, pairwise: decided, judgeCheck: 'trusted', qualitativeAwaitingJudge: 2 }).status).toBe('pass')
+  })
+
+  // 쌍이 전부 폐기되면 승률 분모가 0이라 게이트가 조용히 건너뛰어진다.
+  it('is undecidable when every pairwise pair was discarded', () => {
+    const allGone: PairwiseScore = { win: 0, loss: 0, tie: 0, discarded: 4, rate: null }
+    const v = verdict({ score: base, pairwise: allGone, judgeCheck: 'trusted' })
+    expect(v.status).toBe('undecidable')
+    expect(v.reasons.join(' ')).toMatch(/전부 폐기되어/)
+  })
+
+  it('does not complain when pairs merely tied without being discarded', () => {
+    const tied: PairwiseScore = { win: 0, loss: 0, tie: 3, discarded: 0, rate: null }
+    expect(verdict({ score: base, pairwise: tied, judgeCheck: 'trusted' }).status).toBe('pass')
+  })
+})
+
+// 케이스 파일이 다른 두 런을 비교하면 발동률 차이는 스킬이 아니라 문제지가 바뀐 결과다.
+describe('formatDiff · 케이스 파일이 바뀐 비교', () => {
+  const run = (runId: string, casesHash: string) => ({
+    meta: { ...meta, runId, casesHash, loadedSkills: ['x:y'] },
+    score
+  })
+
+  it('refuses to attribute the change to the skill when the fingerprints differ', () => {
+    const out = formatDiff(run('a', 'v3:aaaaaaaaaaaa'), run('b', 'v3:bbbbbbbbbbbb'))
+    expect(out).toContain('케이스 파일이 다릅니다')
+    expect(out).not.toContain('점수 변화는 스킬 자체의 변경에서 왔습니다')
+  })
+
+  it('still attributes the change to the skill when the fingerprints match', () => {
+    const out = formatDiff(run('a', 'v3:aaaaaaaaaaaa'), run('b', 'v3:aaaaaaaaaaaa'))
+    expect(out).toContain('점수 변화는 스킬 자체의 변경에서 왔습니다')
+  })
+
+  // 재계산할 수 없는 구 포맷 지문으로는 같다고도 다르다고도 말할 수 없다 — 거짓 경고를 내지 않는다.
+  it('says nothing about case drift for runs recorded before the fingerprint format', () => {
+    const out = formatDiff(run('a', 'deadbeef1234'), run('b', 'cafebabe5678'))
+    expect(out).not.toContain('케이스 파일이 다릅니다')
   })
 })

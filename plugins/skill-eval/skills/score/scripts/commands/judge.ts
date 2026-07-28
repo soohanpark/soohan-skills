@@ -51,25 +51,25 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
 
   const results: PairResult[] = []
 
+  // 제외한 쌍도 결과에 남긴다. 그냥 continue 하면 승률 분모가 조용히 줄어, 다섯 쌍 중 하나만
+  // 비교하고도 '100%' 가 찍힌다 — 폐기 건수로 남아야 리포트와 판정이 그 축소를 볼 수 있다.
+  const skip = (c: { id: string; split: 'train' | 'test' }, why: string) => {
+    console.warn(`⚠ ${c.id}: ${why}. 이 쌍은 제외합니다.`)
+    results.push({ caseId: c.id, split: c.split, outcome: 'tie', discarded: true })
+  }
+
   for (const c of cases.filter(c => c.qualitative)) {
     const forced = index.find(e => e.variant === 'forced' && e.caseId === c.id)
     const without = index.find(e => e.variant === 'without' && e.caseId === c.id)
-    if (!forced || !without || without.parsed.status !== 'ok') continue
+    if (!forced) { skip(c, 'forced 실행 기록이 없습니다'); continue }
+    if (!without) { skip(c, 'baseline(without) 실행 기록이 없습니다'); continue }
+    if (without.parsed.status !== 'ok') { skip(c, `baseline: ${without.parsed.terminalReason}`); continue }
     // forced 가 잘렸거나 스킬이 붙지 않았으면 비교 대상이 아니다 — 스킬 없이 낸 답을
     // 스킬 편에 세우면 페어와이즈가 스킬이 아니라 모델을 재게 된다.
     const usable = forcedUsable(forced)
-    if (!usable.usable) {
-      console.warn(`⚠ ${c.id}: ${usable.detail}. 이 쌍은 제외합니다.`)
-      continue
-    }
-    if (without.parsed.truncated) {
-      console.warn(`⚠ ${c.id}: baseline 이 턴 한도에 걸려 잘렸습니다. 이 쌍은 제외합니다.`)
-      continue
-    }
-    if (without.parsed.skillReadFallback) {
-      console.warn(`⚠ ${c.id}: baseline 이 SKILL.md 를 직접 읽었습니다. 이 쌍은 제외합니다.`)
-      continue
-    }
+    if (!usable.usable) { skip(c, usable.detail); continue }
+    if (without.parsed.truncated) { skip(c, 'baseline 이 턴 한도에 걸려 잘렸습니다'); continue }
+    if (without.parsed.skillReadFallback) { skip(c, 'baseline 이 SKILL.md 를 직접 읽었습니다'); continue }
 
     const criteria = deriveCriteria(c, description)
     try {

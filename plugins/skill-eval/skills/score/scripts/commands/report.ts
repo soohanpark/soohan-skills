@@ -41,6 +41,9 @@ export const cmdReport = (runId: string, repoRoot: string): void => {
     pairwise: pairwise?.score,
     judgeCheck: pairwise?.judgeCheck,
     judgeCostUsd: pairwise?.costUsd,
+    // 정성 축을 선언해 놓고 judge 를 안 돌렸으면, 리포트에 정성 줄이 없는 것은
+    // "잴 것이 없었다"가 아니라 "재지 않았다"다.
+    qualitativeAwaitingJudge: cases.filter(c => c.qualitative && c.split === 'test').length,
     hasBaselineRuns: index.some(e => e.variant === 'without'),
     tokens: tokenDelta(index) ?? undefined,
     execution: summarizeExecution(index),

@@ -14,9 +14,10 @@ export const deriveCriteria = (c: EvalCase, skillDescription: string): string =>
 // 폐기 필터가 무력화된다. 호출부가 빈 값을 보고 멈추는 편이 낫다.
 // 블록 형태를 먼저 본다 — 단일 라인 패턴을 먼저 대면 "description: >-" 의 ">-" 자체를
 // 값으로 집어간다 ([ \t]* 가 0글자로 물러나면서 negative lookahead 를 비껴간다).
-const BLOCK = /^description:[ \t]*[|>][-+]?[ \t]*\r?\n((?:[ \t]+.*(?:\r?\n|$))+)/m
+// 블록은 들여쓰기 없는 다음 키를 만나기 전까지다 — 중간의 빈 줄도 블록의 일부다.
+const BLOCK = /^description:[ \t]*[|>][-+]?[ \t]*(?:#[^\n]*)?\r?\n((?:(?:[ \t]+[^\n]*)?(?:\r?\n|$))+)/m
 const SINGLE_LINE = /^description:[ \t]*(.+)$/m
-const BLOCK_INDICATOR_ONLY = /^[|>][-+]?$/
+const BLOCK_INDICATOR_ONLY = /^[|>][-+]?(?:\s*#.*)?$/
 
 export const skillDescription = (skillMd: string): string => {
   const frontmatter = skillMd.split('---')[1] ?? ''

@@ -58,17 +58,27 @@ const parseCase = (raw: unknown): { case: EvalCase } | { error: string } => {
 // 케이스 파일의 지문. record 가 meta 에 남기고 report·judge 가 다시 계산해 대조한다 —
 // 기록해 둔 런을 나중에 재채점할 때 그 사이 케이스가 바뀌었는지 알아낼 유일한 수단이다.
 // (실측 보고자는 기록 후 split 만 지우고 report 를 다시 돌려 조용한 합격을 재현했다.)
-// 'v2:' 접두사는 plan 기반이던 구 해시와 구분하기 위한 것이다 — 접두사가 없으면 읽는 쪽이 검사를 건너뛴다.
+// 지문에는 채점이 실제로 소비하는 필드가 전부 들어가야 한다. id·split·expect·prompt 만 넣으면
+// must 를 지우거나 criteria 를 바꿔도 지문이 그대로라 드리프트가 안 잡힌다 — 판정을 뒤집는
+// 편집이 흔적 없이 지나간다 (적대적 리뷰에서 확인).
+// 접두사는 포맷 버전이다. 읽는 쪽은 자기가 재계산할 수 있는 포맷일 때만 대조하고, 그 외에는
+// 조용히 넘긴다 — 거짓 경고가 쌓이면 진짜 경고까지 무시하게 된다.
+export const CASES_HASH_PREFIX = 'v3:'
+
 export const hashCases = (cases: EvalCase[]): string =>
-  'v2:' + createHash('sha256')
-    .update(cases.map(c => [c.id, c.split, c.expect, c.prompt].join('\u0000')).join('\n'))
+  CASES_HASH_PREFIX + createHash('sha256')
+    .update(cases.map(c => [
+      c.id, c.split, c.expect, c.prompt,
+      JSON.stringify(c.must ?? []), JSON.stringify(c.must_not ?? []),
+      String(c.qualitative ?? false), c.criteria ?? ''
+    ].join('\u0000')).join('\n'))
     .digest('hex')
     .slice(0, 12)
 
 // 기록된 지문과 지금 케이스 파일이 어긋났는가. 접두사 없는 구 해시(plan 기반)는 재계산할 수
 // 없으므로 조용히 넘긴다 — 거짓 경고가 쌓이면 진짜 경고까지 무시하게 된다.
 export const casesDrifted = (recordedHash: string | undefined, current: string): boolean =>
-  typeof recordedHash === 'string' && recordedHash.startsWith('v2:') && recordedHash !== current
+  typeof recordedHash === 'string' && recordedHash.startsWith(CASES_HASH_PREFIX) && recordedHash !== current
 
 export const loadCases = (file: string): EvalCase[] => {
   const lines = readFileSync(file, 'utf8').split('\n')

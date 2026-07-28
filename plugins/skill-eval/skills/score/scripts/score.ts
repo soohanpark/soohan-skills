@@ -9,6 +9,9 @@ export interface SplitScore {
   // 전 회차가 에러라 분모에서 통째로 빠진 케이스들. 에러를 실패가 아니라 판정 불가로 빼는 것은
   // 옳지만, 그 사실이 판정에 안 보이면 남은 한 케이스가 100% 를 만들어 게이트를 통과시킨다.
   undecided: string[]
+  // 아예 실행 기록이 없는 케이스들. record 가 중간에 끊기면 index 에 앞부분만 담기는데,
+  // 그 부분 index 를 완주한 런과 똑같이 채점하면 "돌린 것만 세서 100%" 가 나온다.
+  notRun: string[]
   nError: number
 }
 
@@ -28,6 +31,7 @@ const emptySplit = (): SplitScore => ({
   negative: { falseHit: 0, total: 0 },
   unstable: [],
   undecided: [],
+  notRun: [],
   nError: 0
 })
 
@@ -45,9 +49,14 @@ export const scoreTrigger = (index: IndexEntry[], cases: EvalCase[]): TriggerSco
 
   for (const c of cases) {
     const runs = triggerRunsFor(index, c.id)
-    if (runs.length === 0) continue
-
     const bucket = score[c.split]
+    // 계획에는 있는데 실행 기록이 없다 = record 가 여기까지 못 왔다. 조용히 넘기면 중단된
+    // 실행의 부분 index 가 완주한 런과 구분 없이 채점된다.
+    if (runs.length === 0) {
+      bucket.notRun.push(c.id)
+      continue
+    }
+
     const ok = okRuns(runs)
     bucket.nError += runs.length - ok.length
     if (ok.length === 0) {
@@ -109,7 +118,10 @@ export const collectFailures = (index: IndexEntry[], cases: EvalCase[]): Failure
 // scoreTrigger와 마찬가지로 판정(pass/total)은 split별로 나눈다 — train에 맞춰 튜닝한 케이스가
 // 전체 합격/불합격을 뒤집지 못하게 막기 위함이다 (설계 §과적합 방지). failures 목록만은 두 split을
 // 합쳐서 보여준다 — 실패 사례를 숨기지 않되, 판정 자체는 test에서만 계산한다.
-export interface RuleTally { pass: number; total: number }
+// undecided 는 트리거 축의 SplitScore.undecided 와 같은 역할이다 — 분모에서 빠진 케이스를
+// 판정이 알아야 한다. 이게 없어서 forced 가 전부 제외돼도 must/must_not 게이트가 그냥
+// 건너뛰어지고 '✓ 합격' 이 찍혔다 (적대적 리뷰 confirmed).
+export interface RuleTally { pass: number; total: number; undecided: string[] }
 export interface RuleScore { train: RuleTally; test: RuleTally; failures: Failure[] }
 
 // forced 실행을 품질 판정의 근거로 쓸 수 있는가. 셋 다 참이어야 한다:
@@ -137,22 +149,26 @@ export const forcedUsable = (run: IndexEntry): { usable: true } | { usable: fals
 }
 
 export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore => {
-  const train: RuleTally = { pass: 0, total: 0 }
-  const test: RuleTally = { pass: 0, total: 0 }
+  const train: RuleTally = { pass: 0, total: 0, undecided: [] }
+  const test: RuleTally = { pass: 0, total: 0, undecided: [] }
   const failures: Failure[] = []
 
   for (const c of cases) {
     if (!c.must && !c.must_not) continue
+    const bucket = c.split === 'test' ? test : train
     const run = index.find(e => e.variant === 'forced' && e.caseId === c.id)
-    if (!run) continue
+    if (!run) {
+      bucket.undecided.push(c.id)
+      continue
+    }
     const usable = forcedUsable(run)
     if (!usable.usable) {
       // 판정 불가 — 분모에서 빼되 실패 목록에는 남긴다. 조용히 빠지면 분모 축소가 안 보인다 (리뷰 R6)
       failures.push({ caseId: c.id, kind: usable.kind, detail: usable.detail })
+      bucket.undecided.push(c.id)
       continue
     }
 
-    const bucket = c.split === 'test' ? test : train
     bucket.total += 1
     const r = checkRules(run.parsed.finalText, c)
     if (r.passed) bucket.pass += 1
@@ -166,9 +182,15 @@ export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore =>
 // 두 변형 모두 ok 인 케이스만 짝지어 합산한다 — 분모가 어긋나면 케이스 수 차이만으로 델타가
 // 부풀려진다 (리뷰 R5). 짝이 하나도 없으면(without 이 없는 codex 등) forced 합계만 보고한다.
 export const tokenDelta = (index: IndexEntry[]): { forced: number; without: number | null } | null => {
-  // 잘린 실행은 뺀다 — 턴 한도에서 멈춘 쪽의 토큰은 "이 스킬이 쓰는 양"이 아니라 "한도까지 쓴 양"이다
+  // forced 는 품질 판정과 같은 기준으로 거른다 — 스킬이 붙지 않은 실행의 토큰을 "스킬 사용량"
+  // 으로 세면 델타가 스킬이 아니라 모델을 재게 된다. without 은 스킬이 없는 것이 정상이므로
+  // 정상 종료·비절단만 본다 (절단된 쪽의 토큰은 "한도까지 쓴 양"이라 비교할 수 없다).
   const okRunsOf = (variant: 'forced' | 'without') =>
-    index.filter(e => e.variant === variant && e.parsed.status === 'ok' && !e.parsed.truncated)
+    index.filter(e => e.variant === variant && (
+      variant === 'forced'
+        ? forcedUsable(e).usable
+        : e.parsed.status === 'ok' && !e.parsed.truncated
+    ))
 
   const forcedRuns = okRunsOf('forced')
   if (forcedRuns.length === 0) return null
