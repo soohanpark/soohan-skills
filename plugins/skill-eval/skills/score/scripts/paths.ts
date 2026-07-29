@@ -46,13 +46,70 @@ const pluginNameFromManifest = (skillDir: string): string | null => {
   return null
 }
 
+// 설치된 플러그인은 ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/ 에 놓이고
+// 그 경로가 installed_plugins.json 에 기록된다. 버전이 디렉터리 이름이라 재설치할 때마다
+// 경로가 바뀌므로, 사람이 경로를 외워 넘기면 매번 어긋난다 — 그래서 id 를 넘겼을 때 여기서 찾는다.
+// 이게 없으면 plugin:skill 형식은 레포 체크아웃 안에서만 쓸 수 있는 반쪽짜리 인자였다.
+export interface InstalledLookup {
+  file?: string   // 테스트 주입용. 기본은 Claude Code 의 설치 기록.
+  cwd?: string
+}
+
+interface InstallRecord {
+  installPath?: unknown
+  projectPath?: unknown
+  scope?: unknown
+  lastUpdated?: unknown
+}
+
+const installRecordsFile = (opts: InstalledLookup): string =>
+  opts.file ?? join(homedir(), '.claude', 'plugins', 'installed_plugins.json')
+
+export const installedSkillDir = (
+  plugin: string,
+  skill: string,
+  opts: InstalledLookup = {}
+): string | null => {
+  const file = installRecordsFile(opts)
+  if (!existsSync(file)) return null
+
+  let records: InstallRecord[]
+  try {
+    const plugins = JSON.parse(readFileSync(file, 'utf8'))?.plugins ?? {}
+    // 키는 "<plugin>@<marketplace>" 다. '@' 앞이 정확히 일치해야 한다 —
+    // startsWith 로 보면 msuarcade 가 msuarcade-extra 까지 집는다.
+    records = Object.entries(plugins as Record<string, unknown>)
+      .filter(([key]) => key.split('@')[0] === plugin)
+      .flatMap(([, entries]) => (Array.isArray(entries) ? entries : []) as InstallRecord[])
+      .filter(e => typeof e?.installPath === 'string')
+  } catch {
+    return null   // 기록 파일이 깨졌으면 없는 것으로 본다
+  }
+  if (records.length === 0) return null
+
+  const cwd = opts.cwd ?? process.cwd()
+  const inProject = (e: InstallRecord): boolean =>
+    typeof e.projectPath === 'string' && (cwd === e.projectPath || cwd.startsWith(e.projectPath + '/'))
+
+  // 세션이 실제로 읽는 사본을 골라야 측정이 성립한다: 이 프로젝트 것 → user 스코프 → 최신 갱신
+  const picked =
+    records.find(inProject) ??
+    records.find(e => e.scope === 'user') ??
+    [...records].sort((a, b) =>
+      String(b.lastUpdated ?? '').localeCompare(String(a.lastUpdated ?? '')))[0]
+
+  const dir = join(String(picked.installPath), 'skills', skill)
+  // 기록은 남아 있는데 디렉터리가 지워진 경우가 흔하다 — 실재할 때만 돌려준다.
+  return existsSync(join(dir, 'SKILL.md')) ? dir : null
+}
+
 // 개인·팀 로컬 스킬이 사는 곳. 여기엔 플러그인이 없는 것이 정상이고, 스킬의 실제 id 는
 // 접두사 없는 맨 이름이다. 다른 CLI 의 설치 루트(.codex 등)는 계속 거부한다 — 그쪽에 설치된
 // 사본을 claude 런타임으로 재면 세션에 없는 스킬을 재는 셈이라 측정이 성립하지 않는다.
 const PERSONAL_SKILL_ROOT = '.claude'
 
 // "plugin:skill", SKILL.md 가 든 디렉터리 경로, 또는 SKILL.md 파일 경로 자체를 받는다.
-export const resolveSkill = (arg: string, repoRoot: string): SkillRef => {
+export const resolveSkill = (arg: string, repoRoot: string, opts: InstalledLookup = {}): SkillRef => {
   if (arg.includes('/')) {
     const dir = arg.replace(/\/+$/, '').replace(/\/SKILL\.md$/, '')
     const parts = dir.split('/')
@@ -84,7 +141,16 @@ export const resolveSkill = (arg: string, repoRoot: string): SkillRef => {
     throw new Error(`"${arg}" 는 plugin:skill 형식이 아닙니다. 경로를 주려면 슬래시를 포함하세요.`)
   }
   const [plugin, skill] = arg.split(':')
-  return { id: arg, dir: join(repoRoot, 'plugins', plugin, 'skills', skill) }
+  // 체크아웃 안이면 레포 사본이 우선이다 — 지금 고치는 중인 그 파일을 재는 것이 맞다.
+  const inRepo = join(repoRoot, 'plugins', plugin, 'skills', skill)
+  if (existsSync(join(inRepo, 'SKILL.md'))) return { id: arg, dir: inRepo }
+
+  const installed = installedSkillDir(plugin, skill, opts)
+  if (installed) return { id: arg, dir: installed }
+
+  // 둘 다 없으면 원래 경로를 그대로 돌려준다 — CLI 계층의 skillMdExists 가 사람이 읽을
+  // 메시지로 잡는다. 여기서 던지면 판정 문구가 두 군데로 갈린다.
+  return { id: arg, dir: inRepo }
 }
 
 // 해석된 경로가 실제 스킬을 가리키는지. 아니면 forced 변형이 존재하지 않는 슬래시 커맨드를

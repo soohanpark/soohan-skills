@@ -22,9 +22,21 @@ description: Use when the user wants to measure whether a skill actually works �
 <eval> report <runId>  # 표 출력
 ```
 
-`<스킬>` 지정: 체크아웃 안에서는 `plugin:skill` id, 밖에서는 대상 SKILL.md 가 든 디렉터리
-경로를 넘긴다 (`…/<plugin>/skills/<skill>` 모양이어야 한다 — id 형식은 체크아웃 안에서만
-스킬 파일을 찾을 수 있다). 결과는 체크아웃 안이면 레포 `evals/`, 밖이면 `~/.skill-eval/` 에 쌓인다.
+`<스킬>` 지정: `plugin:skill` id 를 넘기는 것이 기본이다. 이 순서로 찾는다 —
+
+1. 체크아웃 안의 `plugins/<plugin>/skills/<skill>` (그 파일을 고치는 중이면 이쪽을 재야 한다)
+2. 설치된 사본. Claude Code 의 설치 기록에서 **지금 프로젝트에 깔린 버전**을 골라
+   `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/skills/<skill>` 로 간다.
+   세션이 실제로 읽는 사본이 그것이므로 그것을 재는 게 맞다.
+
+버전이 디렉터리 이름이라 재설치할 때마다 경로가 바뀌므로, 경로를 손으로 넘기는 것보다 id 가
+안전하다. 그래도 경로를 직접 주고 싶으면 `…/<plugin>/skills/<skill>` 모양이면 되고, 플러그인
+이름은 `plugin.json` 에서 읽으므로 버전 칸에 커밋 SHA 가 와도 상관없다.
+
+해석 결과에 SKILL.md 가 없으면 실행 전에 멈춘다 — 존재하지 않는 스킬을 재면 발동률이 0% 로
+나오고 `forced` 가 없는 슬래시 커맨드를 부른다.
+
+결과는 체크아웃 안이면 레포 `evals/`, 밖이면 `~/.skill-eval/` 에 쌓인다.
 
 ## 돌리기 전에 갖춰야 할 조건
 
