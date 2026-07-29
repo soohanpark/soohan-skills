@@ -64,6 +64,19 @@ const restrictionArgs = (extraDenied: string[]): string[] => {
   ]
 }
 
+// 한 턴짜리 텍스트 응답만 필요한 호출용 인자 — 심판 판정과 프롬프트 증강이 여기 해당한다.
+// 둘 다 프롬프트에 신뢰할 수 없는 입력(녹화 트랜스크립트 · 채굴한 실사용 발화)을 그대로
+// 끼워 넣으므로 인젝션 표면이다. 도구가 필요 없으니 턴과 도구를 함께 잠근다.
+// 두 곳이 각자 목록을 들면 한쪽만 갱신되어 조용히 어긋난다 — 한 군데서 만든다.
+export const buildTextOnlyArgs = (prompt: string): string[] => [
+  '-p', prompt, '--output-format', 'stream-json', '--verbose',
+  '--max-turns', '1',
+  '--strict-mcp-config',
+  '--disallowedTools',
+  'Skill', 'Bash', 'Read', 'Grep', 'Glob', 'Write', 'Edit', 'WebFetch', 'WebSearch',
+  ...SIDE_EFFECT_TOOLS
+]
+
 export const buildArgs = (
   variant: Variant,
   skill: SkillRef,

@@ -1,5 +1,5 @@
 import type { EvalCase } from './cases.js'
-import { SIDE_EFFECT_TOOLS } from './runtimes/claude.js'
+import { buildTextOnlyArgs } from './runtimes/claude.js'
 
 export type Verdict = 'A' | 'B' | 'tie'
 
@@ -36,15 +36,7 @@ export const skillDescription = (skillMd: string): string => {
 // (신뢰 불가 입력)가 들어가므로 턴과 도구를 함께 잠근다. 턴 초과로 잘리면 parseVerdict 가
 // tie 로 안전하게 폴백한다 (설계 §8-2, 리뷰 R7).
 // 여기가 이 하네스에서 프롬프트 인젝션 표면이 가장 넓은 지점이다 — 남의 출력을 그대로 읽는다.
-// 그런데 이 목록만으로는 MCP 116개와 Cron·RemoteTrigger 류가 그대로 열려 있었다 (실측 2026-07-29).
-export const buildJudgeArgs = (prompt: string): string[] => [
-  '-p', prompt, '--output-format', 'stream-json', '--verbose',
-  '--max-turns', '1',
-  '--strict-mcp-config',
-  '--disallowedTools',
-  'Skill', 'Bash', 'Read', 'Grep', 'Glob', 'Write', 'Edit', 'WebFetch', 'WebSearch',
-  ...SIDE_EFFECT_TOOLS
-]
+export const buildJudgeArgs = (prompt: string): string[] => buildTextOnlyArgs(prompt)
 
 export const buildJudgePrompt = (args: { criteria: string; a: string; b: string }): string => `
 아래 두 출력을 주어진 기준으로만 비교하라. 기준 밖의 요소(친절함, 길이, 어조 등)는 판단에 넣지 마라.

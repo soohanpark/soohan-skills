@@ -7,12 +7,12 @@ import { join } from 'node:path'
 import type { EvalCase } from '../cases.js'
 import {
   attachVariants, buildAugmentPrompt, classify, extractPrompts,
-  keywordsFromDescription, parseVariants, toDraftCases
+  keywordsFromDescription, mapLimit, mineConcurrency, parseVariants, toDraftCases
 } from '../mine.js'
 import { skillDescription } from '../judge.js'
 import { parseClaudeStream } from '../parse.js'
 import { evalsRoot, resolveSkill, skillMdExists, slug } from '../paths.js'
-import { execClaude } from '../runtimes/claude.js'
+import { buildTextOnlyArgs, execClaude } from '../runtimes/claude.js'
 
 const walkJsonl = (dir: string): string[] => {
   const out: string[] = []
@@ -44,20 +44,24 @@ export const cmdMine = async (skillArg: string, repoRoot: string): Promise<void>
   const originals = toDraftCases(buckets)
 
   // 표현 변형으로 물량을 채운다. 변형은 원본의 split 을 물려받으므로 누수가 없다 (설계 §6-3, §8-5)
-  const augmented: EvalCase[] = []
-  for (const c of originals) {
+  // 원본 1건당 CLI 를 한 번씩 부르므로 순차로 돌면 이 단계가 mine 전체 시간을 지배한다 —
+  // 상한을 둔 채 동시에 돌린다. mapLimit 이 입력 순서를 지켜 draft 파일이 실행마다 흔들리지 않는다.
+  const limit = mineConcurrency()
+  if (originals.length > 0) {
+    console.log(`원본 ${originals.length}건 증강 중 (동시 ${Math.min(limit, originals.length)}건)…`)
+  }
+  const augmented: EvalCase[] = (await mapLimit(originals, limit, async (c) => {
     try {
-      const { stdout } = await execClaude([
-        '-p', buildAugmentPrompt(c.prompt, 2), '--output-format', 'stream-json', '--verbose'
-      ])
-      const text = parseClaudeStream(stdout, { skillId: '', skillDir: ' ' }).finalText
-      augmented.push(...attachVariants(c, parseVariants(text)))
+      const { stdout } = await execClaude(buildTextOnlyArgs(buildAugmentPrompt(c.prompt, 2)))
+      const text = parseClaudeStream(stdout, { skillId: '', skillDir: '' }).finalText
+      return attachVariants(c, parseVariants(text))
     } catch (e) {
       // 일시적 실패(네트워크/CLI) 하나로 이미 증강한 나머지 변형까지 버리지 않는다 — per-item try/catch.
-      // 이 원본의 변형만 건너뛴다.
+      // 이 원본의 변형만 건너뛴다. mapLimit 은 던지면 전체를 거부하므로 여기서 반드시 잡는다.
       console.warn(`⚠ ${c.id}: 증강 실패 — ${(e as Error).message}`)
+      return []
     }
-  }
+  })).flat()
 
   const cases = [...originals, ...augmented]
   const outFile = join(EVALS, slug(skill.id), 'cases.draft.jsonl')

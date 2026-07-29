@@ -16,7 +16,7 @@ description: Use when the user wants to measure whether a skill actually works �
 - 그 외 어디서든: `npx -y tsx <이 SKILL.md 가 있는 디렉터리>/scripts/cli.ts` — Node 만 있으면 된다
 
 ```bash
-<eval> mine   <스킬>   # 로그 채굴 → cases.draft.jsonl
+<eval> mine   <스킬>   # 로그 채굴 → cases.draft.jsonl  (수십 초~1분, 원본 수에 비례)
 <eval> record <스킬>   # 실행 → 런 디렉터리 적재  (--runtime=claude|codex, 중단됐으면 --resume=<runId>)
 <eval> judge  <runId>  # 페어와이즈 판정
 <eval> report <runId>  # 표 출력
@@ -63,6 +63,10 @@ baseline이 워크스페이스의 다른 프로젝트 문서를 뒤져 전혀 �
 로드 시점에 에러가 난다 — 예전에는 조용히 `train` 이 되어 판정이 통째로 공회전했다.
 
 ## 당신이 판단할 것은 셋뿐이다
+
+**0. `mine`은 그냥 기다린다.** 세션 로그를 훑은 뒤 원본 1건당 CLI를 한 번씩 불러 표현 변형을
+만든다. 동시 4건씩 돌아서(`SKILL_EVAL_MINE_CONCURRENCY`로 조절) 보통 수십 초면 끝난다.
+백그라운드로 돌리거나 별도의 대기 로직을 만들 필요가 없다.
 
 **1. near-miss 선별.** `cases.draft.jsonl`을 읽고 변별력 있는 negative만 남긴다.
 스킬과 아무 상관 없는 프롬프트("점심 메뉴 추천")는 통과시켜도 아무것도 검증하지 못하므로 버린다.
