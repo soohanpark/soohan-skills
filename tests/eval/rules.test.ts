@@ -44,3 +44,21 @@ describe('checkRules', () => {
     expect(r.failures).toHaveLength(3)
   })
 })
+
+// 사용자가 정규식을 의도했는지 알 방법이 없는 DSL 이라 오해석 자체는 남지만, 잘못된 패턴
+// 하나가 report 전체를 죽이는 것은 별개 문제다 — must: ["/api/v1(beta/"] 하나로 리포트가 못 나왔다.
+describe('checkRules · 깨진 정규식', () => {
+  it('falls back to a literal match instead of throwing on an invalid pattern', () => {
+    expect(() => checkRules('api/v1(beta 를 쓴다', { must: ['/api/v1(beta/'] })).not.toThrow()
+    expect(checkRules('/api/v1(beta/ 를 그대로 담았다', { must: ['/api/v1(beta/'] }).passed).toBe(true)
+  })
+
+  it('reports a must failure rather than crashing when the broken pattern is absent', () => {
+    const r = checkRules('전혀 다른 내용', { must: ['/unterminated(/'] })
+    expect(r.passed).toBe(false)
+  })
+
+  it('keeps a valid regex rule working', () => {
+    expect(checkRules('## 변경 사항', { must: ['/^##\\s변경/'] }).passed).toBe(true)
+  })
+})

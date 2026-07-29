@@ -1,12 +1,12 @@
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { loadCases, type EvalCase } from '../cases.js'
+import { casesDrifted, hashCases, loadCases, type EvalCase } from '../cases.js'
 import type { ParsedRun } from '../parse.js'
 import { parseClaudeStream, parseCodexStream } from '../parse.js'
-import { casesFile, evalsRoot, resolveSkill, runDirName } from '../paths.js'
+import { casesFile, evalsRoot, resolveSkill, runDirName, skillMdExists } from '../paths.js'
 import { planRuns, recordAll, type PlanItem, type RuntimeName } from '../record.js'
-import { buildArgs, execClaude, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
+import { buildArgs, execClaude, sideEffectsAllowed, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
 import { buildCodexArgs, execCodex } from '../runtimes/codex.js'
 
 // 실행 결과를 사람이 읽을 한 덩어리로 만든다 (순수 — 테스트 대상)
@@ -73,12 +73,18 @@ export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: 
 // --resume 대상의 meta 와 이번 호출 인자가 맞물리는지 검증하고 재개 런타임을 정한다 (순수 — 테스트 대상).
 // 다른 스킬의 런을 이어받으면 기존 원본이 엉뚱한 skillId/파서로 재해석되고 meta 가 덮인다 (재검증 리뷰 3).
 export const checkResume = (
-  meta: { skillId?: string; runtime?: RuntimeName },
+  meta: { skillId?: string; runtime?: RuntimeName; casesHash?: string },
   skillId: string,
-  runtimeFlag?: string
+  runtimeFlag?: string,
+  casesHash?: string
 ): RuntimeName => {
   if (meta.skillId && meta.skillId !== skillId) {
     throw new Error(`--resume 대상은 ${meta.skillId} 의 실행입니다 — ${skillId} 로 이어갈 수 없습니다.`)
+  }
+  // 재개는 이미 적재된 원본을 그대로 재파싱한다. 그 사이 케이스를 고치면 옛 프롬프트에 대한
+  // 응답이 새 프롬프트의 측정 결과로 index 에 들어가고, 지문은 새 값으로 덮여 흔적조차 안 남는다.
+  if (casesHash !== undefined && casesDrifted(meta.casesHash, casesHash)) {
+    throw new Error('--resume 대상을 기록한 뒤 케이스 파일이 바뀌었습니다 — 이미 적재된 실행은 옛 케이스의 결과입니다. 새 runId 로 기록하세요.')
   }
   const resumed = meta.runtime ?? 'claude'
   if (runtimeFlag && parseRuntimeFlag(runtimeFlag, resumed) !== resumed) {
@@ -123,6 +129,13 @@ const detectRuntime = (): RuntimeName => {
 
 export const cmdRecord = async (skillArg: string, repoRoot: string, flags: string[] = []): Promise<void> => {
   const skill = resolveSkill(skillArg, repoRoot)
+  // 존재하지 않는 디렉터리로 계속 가면 forced 변형이 존재하지 않는 슬래시 커맨드를 부르고,
+  // 그 변형은 턴·도구 제한이 없어 측정 대신 전권 도구로 프롬프트만 자유 실행된다.
+  if (!skillMdExists(skill)) {
+    console.error(`✗ ${skill.dir}/SKILL.md 가 없습니다 — "${skillArg}" 가 ${skill.id} 로 해석됐습니다.`)
+    console.error('  측정 대상 SKILL.md 가 든 디렉터리 경로를 직접 넘기세요.')
+    process.exit(1)
+  }
   const file = casesFile(repoRoot, skill.id)
   if (!existsSync(file)) {
     console.error(`✗ ${file} 가 없습니다. 먼저 'eval mine ${skillArg}' 를 돌리고 draft를 승격하세요.`)
@@ -130,6 +143,9 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
   }
 
   const { runtime: runtimeFlag, resume } = parseRecordFlags(flags)
+  const cases = loadCases(file)
+  const casesHash = hashCases(cases)
+  let recordedHash = casesHash
   const runId = resume ?? runDirName(skill.id, new Date())
   let runtimeName = parseRuntimeFlag(runtimeFlag, detectRuntime())
   if (resume) {
@@ -139,7 +155,13 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
       process.exit(1)
     }
     try {
-      runtimeName = checkResume(JSON.parse(readFileSync(metaFile, 'utf8')), skill.id, runtimeFlag)
+      const resumedMeta = JSON.parse(readFileSync(metaFile, 'utf8'))
+      runtimeName = checkResume(resumedMeta, skill.id, runtimeFlag, casesHash)
+      // 재개는 기존 원본을 재사용한다. 지문을 지금 값으로 덮으면 대조할 수 없던 구 포맷 런이
+      // 갑자기 '검증된' 것처럼 보인다 — 원래 값을 그대로 남긴다.
+      if (typeof resumedMeta.casesHash === 'string' && resumedMeta.casesHash !== '') {
+        recordedHash = resumedMeta.casesHash
+      }
     } catch (e) {
       console.error(`✗ ${(e as Error).message}`)
       process.exit(1)
@@ -147,15 +169,16 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
   }
 
   const runtime = RUNTIMES[runtimeName]
-  const plan = buildRecordPlan(loadCases(file), runtime.qualityVariants)
+  const plan = buildRecordPlan(cases, runtime.qualityVariants)
   const res = await recordAll({
-    plan, skill,
+    plan, skill, casesHash: recordedHash,
     outDir: join(evalsRoot(repoRoot), 'runs', runId),
     exec: runtime.exec,
     buildArgsFn: runtime.buildArgs,
     parse: runtime.parse,
     repoSha: currentSha(repoRoot),
-    runtime: runtime.name
+    runtime: runtime.name,
+    sideEffectsAllowed: sideEffectsAllowed()
   })
   console.log(`런타임: ${runtime.name}`)
   console.log(formatRecordSummary(res, runId))

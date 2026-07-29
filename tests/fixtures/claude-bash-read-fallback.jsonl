@@ -1,0 +1,4 @@
+{"type":"system","subtype":"init","session_id":"s6","model":"claude-test","tools":["Bash"],"skills":[]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"cat /Users/me/.claude/plugins/cache/demo/a1b2c3/skills/write/SKILL.md"}}]},"session_id":"s6"}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"읽었습니다."}]},"session_id":"s6"}
+{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed","num_turns":3,"total_cost_usd":0.3,"usage":{"input_tokens":800,"output_tokens":200,"cache_read_input_tokens":0,"cache_creation_input_tokens":0},"result":"읽었습니다.","session_id":"s6"}

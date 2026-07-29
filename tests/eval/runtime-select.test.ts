@@ -39,6 +39,23 @@ describe('checkResume', () => {
   it('accepts an explicit --runtime that matches the resumed runtime', () => {
     expect(checkResume({ skillId: 'a:b', runtime: 'codex' }, 'a:b', '--runtime=codex')).toBe('codex')
   })
+
+  // 재개는 이미 적재된 원본을 그대로 재파싱한다. 그 사이 케이스를 고치면 옛 프롬프트에 대한
+  // 응답이 새 프롬프트의 측정 결과로 index 에 들어가고, 지문은 새 값으로 덮여 흔적도 안 남는다.
+  it('refuses to resume once the case file has changed', () => {
+    expect(() => checkResume({ skillId: 'a:b', casesHash: 'v3:aaaaaaaaaaaa' }, 'a:b', undefined, 'v3:bbbbbbbbbbbb'))
+      .toThrow(/케이스/)
+  })
+
+  it('resumes when the case file is unchanged', () => {
+    expect(checkResume({ skillId: 'a:b', casesHash: 'v3:aaaaaaaaaaaa' }, 'a:b', undefined, 'v3:aaaaaaaaaaaa'))
+      .toBe('claude')
+  })
+
+  it('resumes a run recorded before the current fingerprint format existed', () => {
+    expect(checkResume({ skillId: 'a:b', casesHash: 'deadbeef1234' }, 'a:b', undefined, 'v3:bbbbbbbbbbbb'))
+      .toBe('claude')
+  })
 })
 
 describe('parseRuntimeFlag', () => {
