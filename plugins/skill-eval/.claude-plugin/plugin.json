@@ -1,6 +1,6 @@
 {
   "name": "skill-eval",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "스킬의 트리거 정확도와 품질 델타를 실제 실행으로 측정하는 평가 하네스",
   "author": { "name": "soohanpark" },
   "category": "meta",
