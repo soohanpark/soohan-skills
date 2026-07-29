@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
-  extractPrompts, classify, toDraftCases, keywordsFromDescription
+  classify, extractPrompts, keywordsFromDescription, mapLimit, mineConcurrency, toDraftCases
 } from '../../plugins/skill-eval/skills/score/scripts/mine'
 import { buildAugmentPrompt, parseVariants, attachVariants } from '../../plugins/skill-eval/skills/score/scripts/mine'
 import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
@@ -242,5 +242,93 @@ describe('classify · 중복 프롬프트의 라벨', () => {
     const r = classify([m('MR 써줘'), m('MR 써줘')], { skillId: 'demo:write', keywords: ['MR'] })
     expect(r.positives).toEqual([])
     expect(r.nearMisses).toHaveLength(1)
+  })
+})
+
+// 증강은 원본 1건당 claude CLI 를 한 번씩 부른다. 순차로 돌면 원본 10건에 수 분이 걸리고,
+// 그 사이 호출부가 "오래 걸리네" 하며 즉흥적인 대기 로직을 만들어 낸다 (실제로 그러다
+// ScheduleWakeup 을 잘못 불러 에러가 찍혔다). 동시에 돌리되 상한을 둔다 — CLI 프로세스를
+// 무제한으로 띄우면 레이트 리밋에 걸린다.
+describe('mapLimit', () => {
+  const tracked = (limitSeen: { peak: number }) => {
+    let active = 0
+    return async (n: number) => {
+      active += 1
+      limitSeen.peak = Math.max(limitSeen.peak, active)
+      await new Promise(r => setTimeout(r, 2))
+      active -= 1
+      return n * 2
+    }
+  }
+
+  it('returns results in input order, not completion order', async () => {
+    const out = await mapLimit([5, 1, 3], 3, async (n) => {
+      await new Promise(r => setTimeout(r, n))   // 5 가 가장 늦게 끝난다
+      return n
+    })
+    expect(out).toEqual([5, 1, 3])
+  })
+
+  it('runs several at once instead of one at a time', async () => {
+    const seen = { peak: 0 }
+    await mapLimit([1, 2, 3, 4, 5, 6], 3, tracked(seen))
+    expect(seen.peak).toBeGreaterThan(1)
+  })
+
+  it('never exceeds the concurrency cap', async () => {
+    const seen = { peak: 0 }
+    await mapLimit(Array.from({ length: 20 }, (_, i) => i), 4, tracked(seen))
+    expect(seen.peak).toBeLessThanOrEqual(4)
+  })
+
+  it('behaves sequentially at a cap of one', async () => {
+    const seen = { peak: 0 }
+    await mapLimit([1, 2, 3], 1, tracked(seen))
+    expect(seen.peak).toBe(1)
+  })
+
+  it('handles an empty list and a cap larger than the list', async () => {
+    expect(await mapLimit([], 4, async (n: number) => n)).toEqual([])
+    expect(await mapLimit([1, 2], 99, async (n) => n * 3)).toEqual([3, 6])
+  })
+
+  it('passes the index alongside each item', async () => {
+    expect(await mapLimit(['a', 'b'], 2, async (v, i) => `${i}:${v}`)).toEqual(['0:a', '1:b'])
+  })
+
+  // 호출부가 항목별로 잡는 것이 계약이다 — 한 건의 실패가 나머지 증강을 버리면 안 된다.
+  it('lets a caller that catches per item keep every other result', async () => {
+    const out = await mapLimit([1, 2, 3], 2, async (n) => {
+      try {
+        if (n === 2) throw new Error('boom')
+        return `ok-${n}`
+      } catch { return 'skipped' }
+    })
+    expect(out).toEqual(['ok-1', 'skipped', 'ok-3'])
+  })
+})
+
+describe('mineConcurrency', () => {
+  const saved = process.env.SKILL_EVAL_MINE_CONCURRENCY
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SKILL_EVAL_MINE_CONCURRENCY
+    else process.env.SKILL_EVAL_MINE_CONCURRENCY = saved
+  })
+
+  it('defaults to a modest cap — these are full CLI sessions, not cheap calls', () => {
+    delete process.env.SKILL_EVAL_MINE_CONCURRENCY
+    expect(mineConcurrency()).toBe(4)
+  })
+
+  it('honours an explicit override', () => {
+    process.env.SKILL_EVAL_MINE_CONCURRENCY = '8'
+    expect(mineConcurrency()).toBe(8)
+  })
+
+  it('ignores a value that is not a positive integer', () => {
+    for (const bad of ['0', '-2', 'abc', '', '2.5']) {
+      process.env.SKILL_EVAL_MINE_CONCURRENCY = bad
+      expect(mineConcurrency(), bad).toBe(4)
+    }
   })
 })

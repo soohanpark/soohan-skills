@@ -136,6 +136,40 @@ export const toDraftCases = (args: {
   return cases
 }
 
+// 증강은 원본 1건당 CLI 를 한 번씩 부른다. 순차로 돌면 원본 10건에 수 분이 걸리고, 그동안
+// 호출부가 "왜 안 끝나지" 하며 즉흥적인 대기 로직을 만들어 낸다. 동시에 돌리되 상한을 둔다 —
+// CLI 프로세스를 무제한으로 띄우면 레이트 리밋에 걸려 오히려 느려진다.
+// 결과는 입력 순서를 지킨다: draft 파일이 실행마다 다른 순서로 쓰이면 diff 가 무의미해진다.
+// fn 이 던지면 전체가 거부된다 — 항목별 실패를 견뎌야 하는 호출부가 직접 잡는 것이 계약이다.
+export const mapLimit = async <T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>
+): Promise<R[]> => {
+  const results = new Array<R>(items.length)
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const i = next++
+      if (i >= items.length) return
+      results[i] = await fn(items[i], i)
+    }
+  }
+  const workers = Math.max(1, Math.min(limit, items.length))
+  await Promise.all(Array.from({ length: workers }, worker))
+  return results
+}
+
+const DEFAULT_MINE_CONCURRENCY = 4
+
+// 하나하나가 온전한 CLI 세션이라 넉넉히 잡을 값이 아니다. 환경에 맞춰 올릴 수는 있게 둔다.
+export const mineConcurrency = (): number => {
+  const raw = process.env.SKILL_EVAL_MINE_CONCURRENCY
+  if (raw === undefined || !/^\d+$/.test(raw)) return DEFAULT_MINE_CONCURRENCY
+  const n = Number(raw)
+  return n > 0 ? n : DEFAULT_MINE_CONCURRENCY
+}
+
 export const buildAugmentPrompt = (prompt: string, n: number): string => `
 아래 요청을 사용자가 다르게 말했을 법한 ${n}개의 표현으로 바꿔라.
 
