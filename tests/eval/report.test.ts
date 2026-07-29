@@ -13,7 +13,7 @@ const meta: RunMeta = {
   runId: '2026-07-23T14-02', skillId: 'demo:write', skillDir: '/tmp/plugins/demo/skills/write', model: 'claude-opus-4-8',
   judgeModel: null, loadedSkills: new Array(77).fill('s'), repoSha: 'abc1234',
   casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false,
-  runtime: 'claude', sideEffectsAllowed: false
+  runtime: 'claude', sideEffectsAllowed: false, isolation: 'full'
 }
 
 const pairwise: PairwiseScore = { win: 5, loss: 0, tie: 1, discarded: 0, rate: 1 }
@@ -585,5 +585,31 @@ describe('formatReport · 부수효과 도구 경고', () => {
   it('stays silent for a run recorded before the field existed', () => {
     const out = formatReport({ meta, score, failures: [] })
     expect(out).not.toContain('부수효과 도구')
+  })
+})
+
+// 격리 여부는 점수를 읽기 전에 알아야 한다 — 비격리 트리거 축은 계정의 전역 스킬·훅·CLAUDE.md 와
+// 경쟁한 결과라 description 신호가 아닐 수 있다 (msuarcade:init 실측에서 실패 10건 중 9건).
+describe('formatReport · 격리 표시', () => {
+  it('states that a fully isolated run measures the vacuum trigger rate', () => {
+    const out = formatReport({ meta: { ...meta, isolation: 'full' as const }, score, failures: [] })
+    expect(out).toContain('격리 실행')
+  })
+
+  it('flags a cwd-only run as still competing with user-scope skills', () => {
+    const out = formatReport({ meta: { ...meta, isolation: 'cwd' as const }, score, failures: [] })
+    expect(out).toContain('개인 스킬')
+  })
+
+  it('warns for a claude run recorded before isolation existed', () => {
+    const legacy = { ...meta } as Record<string, unknown>
+    delete legacy.isolation
+    const out = formatReport({ meta: legacy as unknown as RunMeta, score, failures: [] })
+    expect(out).toContain('비격리')
+  })
+
+  it('does not nag a codex run about isolation — that runtime cannot isolate', () => {
+    const out = formatReport({ meta: { ...meta, runtime: 'codex' as const, isolation: 'off' as const }, score, failures: [] })
+    expect(out).not.toContain('비격리')
   })
 })

@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { EvalCase } from './cases.js'
 import { parseClaudeStream, type ParsedRun } from './parse.js'
-import { buildArgs, type BuildOptions, type Exec, type SkillRef, type Variant } from './runtimes/claude.js'
+import { buildArgs, type BuildOptions, type Exec, type IsolationLevel, type SkillRef, type Variant } from './runtimes/claude.js'
 
 export interface PlanItem {
   caseId: string
@@ -30,6 +31,9 @@ export interface RunMeta {
   // 이 실행이 MCP·외부 작용 도구를 열어둔 채 돌았는가. 측정 조건이 파일에 남아야
   // 나중에 리포트를 읽는 사람이 그 점수의 도달 범위를 알 수 있다.
   sideEffectsAllowed: boolean
+  // 격리 수준도 같은 이유로 남긴다 — 비격리 트리거 축은 계정의 전역 스킬·훅과 경쟁한
+  // 결과라, 점수를 읽는 사람이 그 사실을 모르면 미발동을 description 탓으로 오독한다.
+  isolation: IsolationLevel
 }
 
 export interface IndexEntry {
@@ -102,6 +106,7 @@ export const recordAll = async (args: {
   runtime?: RuntimeName
   casesHash?: string
   sideEffectsAllowed?: boolean
+  isolation?: IsolationLevel
   sleep?: (ms: number) => Promise<void>
   buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
   parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
@@ -113,6 +118,7 @@ export const recordAll = async (args: {
   }
 
   const { plan, skill, outDir, exec } = args
+  const isolation = args.isolation ?? 'off'
   const sleep = args.sleep ?? defaultSleep
   // 런타임 어댑터 주입 지점 — 기본은 claude. 기존 호출부는 둘 다 생략하므로 동작이 그대로다 (Task 12).
   const buildArgsFn = args.buildArgsFn ?? buildArgs
@@ -144,7 +150,8 @@ export const recordAll = async (args: {
       startedAt,
       degradedBaseline: args.degradedBaseline ?? true,
       runtime: args.runtime ?? 'claude',
-      sideEffectsAllowed: args.sideEffectsAllowed ?? false
+      sideEffectsAllowed: args.sideEffectsAllowed ?? false,
+      isolation
     }
     writeFileSync(join(outDir, 'index.json'), JSON.stringify(index, null, 2))
     writeFileSync(join(outDir, 'meta.json'), JSON.stringify(meta, null, 2))
@@ -167,13 +174,18 @@ export const recordAll = async (args: {
     }
 
     const attempt = async (): Promise<{ parsed: ParsedRun; stdout: string | null; durationMs: number }> => {
+      // 격리 모드는 실행마다 새 빈 디렉터리를 파서 CLI 의 cwd 로 준다. 실제 워크스페이스에서
+      // 돌리면 baseline 이 워크스페이스 문서를 뒤져 엉뚱한 답을 내고 프로젝트 CLAUDE.md 가
+      // 첫 턴을 뺏는다(실측 2026-07-28·29). 디렉터리를 재사용하면 앞 실행의 산출물이 스킬의
+      // "빈 폴더" 전제를 깬다 — 재시도까지 포함해 매번 새로 판다.
+      const ws = isolation === 'off' ? null : mkdtempSync(join(tmpdir(), 'skill-eval-ws-'))
       try {
         // Task 3 Step 5 실측: Read(<dir>/**) deny 패턴은 -p 모드에서 무시된다.
         // 따라서 degraded(Read/Grep/Glob 전면 차단)가 baseline 의 기본값이다.
         const argv = buildArgsFn(item.variant, skill, item.prompt, {
           degradedBaseline: args.degradedBaseline ?? true
         })
-        const { stdout, durationMs: ms } = await exec(argv)
+        const { stdout, durationMs: ms } = await exec(argv, ws ? { cwd: ws } : undefined)
         return {
           parsed: parse(stdout, { skillId: skill.id, skillDir: skill.dir }),
           stdout,
@@ -183,6 +195,8 @@ export const recordAll = async (args: {
         // stdout: null — 원본 파일을 만들지 않는다는 뜻이다. 빈 파일을 남기면 다음 호출의
         // existsSync 가 이를 "완료됨"으로 오인해 일시적 실패를 영원히 재시도하지 못하게 막는다.
         return { parsed: errorRun((e as Error).message), stdout: null, durationMs: 0 }
+      } finally {
+        if (ws) rmSync(ws, { recursive: true, force: true })
       }
     }
 

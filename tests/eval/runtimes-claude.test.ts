@@ -1,5 +1,8 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { buildArgs, execFailureReason, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { buildArgs, buildTextOnlyArgs, execFailureReason, isolationLevel, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
 
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
 
@@ -203,5 +206,72 @@ describe('buildArgs · 부수효과 도구 차단', () => {
   it('does not treat any other value as opt-in', () => {
     process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = 'true'
     expect(buildArgs('forced', skill, 'x')).toContain('--strict-mcp-config')
+  })
+})
+
+// 실측(2026-07-29, claude-code 2.1.220): 기본 헤드리스 세션에는 계정 전역 플러그인의 스킬
+// 66개(superpowers 14개 포함)와 유저 CLAUDE.md·rules 가 로드된다. msuarcade:init 평가에서
+// 트리거 실패 10건 중 9건이 superpowers 브레인스토밍 훅에 첫 턴을 뺏겼다 — description 이
+// 아니라 환경이 결과를 정했다. --setting-sources project 는 유저 스코프를 제외해 이를 전부
+// 끊고(66→23 스킬 실측, OAuth 유지), --plugin-dir 는 측정 대상 플러그인만 명시 로드한다.
+describe('격리 · isolationLevel/buildArgs', () => {
+  const rooted = { ...skill, pluginRoot: '/tmp/plugins/demo' }
+  const saved = process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS
+    else process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = saved
+  })
+
+  it('grades a plugin skill as full, a rootless skill as cwd-only, side-effects mode as off', () => {
+    expect(isolationLevel(rooted)).toBe('full')
+    expect(isolationLevel(skill)).toBe('cwd')
+    process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = '1'
+    expect(isolationLevel(rooted)).toBe('off')
+  })
+
+  it('loads only the measured plugin and drops the user scope on every variant', () => {
+    for (const v of ['with', 'forced', 'without'] as const) {
+      const args = buildArgs(v, rooted, 'x')
+      expect(args, v).toEqual(expect.arrayContaining(['--setting-sources', 'project']))
+      expect(args, v).toEqual(expect.arrayContaining(['--plugin-dir', '/tmp/plugins/demo']))
+    }
+  })
+
+  // 개인 스킬은 유저 스코프에 산다 — 스코프를 제외하면 측정 대상 자체가 안 실린다.
+  it('keeps the user scope for a skill without a plugin root', () => {
+    const args = buildArgs('with', skill, 'x')
+    expect(args).not.toContain('--setting-sources')
+    expect(args).not.toContain('--plugin-dir')
+  })
+
+  it('drops isolation entirely in side-effects mode — that mode measures the real environment', () => {
+    process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = '1'
+    const args = buildArgs('with', rooted, 'x')
+    expect(args).not.toContain('--setting-sources')
+    expect(args).not.toContain('--plugin-dir')
+  })
+
+  // 심판·증강 호출의 컨텍스트에 유저 CLAUDE.md·rules 가 주입되면 판정이 계정 지시문에 흔들린다.
+  it('excludes the user scope from text-only calls too', () => {
+    expect(buildTextOnlyArgs('x')).toEqual(expect.arrayContaining(['--setting-sources', 'project']))
+  })
+})
+
+describe('makeExec · cwd', () => {
+  it('runs the child in the requested cwd', async () => {
+    const ws = mkdtempSync(join(tmpdir(), 'exec-cwd-'))
+    try {
+      const exec = makeExec('sh', 5000)
+      const r = await exec(['-c', 'pwd'], { cwd: ws })
+      expect(r.stdout.trim()).toBe(realpathSync(ws))
+    } finally {
+      rmSync(ws, { recursive: true, force: true })
+    }
+  })
+
+  it('inherits the parent cwd when no cwd is given', async () => {
+    const exec = makeExec('sh', 5000)
+    const r = await exec(['-c', 'pwd'])
+    expect(r.stdout.trim()).toBe(realpathSync(process.cwd()))
   })
 })

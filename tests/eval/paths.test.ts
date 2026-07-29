@@ -3,6 +3,61 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { installedSkillDir, resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+
+// 격리 레코딩(--plugin-dir)은 SKILL.md 디렉터리가 아니라 .claude-plugin/plugin.json 이 있는
+// 플러그인 루트를 CLI 에 넘겨야 한다 — 그래야 대상 플러그인만 명시 로드된다.
+describe('resolveSkill · pluginRoot', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-root-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  const plant = (dir: string, name: string) => {
+    mkdirSync(join(dir, '.claude-plugin'), { recursive: true })
+    writeFileSync(join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name }))
+  }
+
+  it('sets pluginRoot to the repo plugin directory for a plugin:skill id inside a checkout', () => {
+    const plugin = join(root, 'plugins', 'demo')
+    plant(plugin, 'demo')
+    mkdirSync(join(plugin, 'skills', 'write'), { recursive: true })
+    writeFileSync(join(plugin, 'skills', 'write', 'SKILL.md'), '# s')
+    const r = resolveSkill('demo:write', root)
+    expect(r.pluginRoot).toBe(plugin)
+  })
+
+  it('sets pluginRoot to the manifest directory for a marketplace-cache path', () => {
+    const versionDir = join(root, 'cache', 'mp', 'demo', '1.0.0')
+    plant(versionDir, 'demo')
+    const dir = join(versionDir, 'skills', 'write')
+    mkdirSync(dir, { recursive: true })
+    const r = resolveSkill(dir, '/repo')
+    expect(r.id).toBe('demo:write')
+    expect(r.pluginRoot).toBe(versionDir)
+  })
+
+  // 개인 스킬은 유저 스코프에 산다 — 로드할 플러그인이 없으므로 루트도 없어야 한다.
+  it('leaves pluginRoot unset for a personal ~/.claude/skills skill', () => {
+    const r = resolveSkill('/Users/x/Company/.claude/skills/voice-ko', '/repo')
+    expect(r.pluginRoot).toBeUndefined()
+  })
+
+  it('leaves pluginRoot unset when no manifest exists on the way up', () => {
+    const r = resolveSkill('/u/plugins/cache/official/dry-skill/1.2.0/skills/run', '/repo')
+    expect(r.pluginRoot).toBeUndefined()
+  })
+
+  it('sets pluginRoot to the install path for an id resolved from the install records', () => {
+    const installPath = join(root, 'cache', 'mp', 'demo', '2.0.0')
+    plant(installPath, 'demo')
+    mkdirSync(join(installPath, 'skills', 'write'), { recursive: true })
+    writeFileSync(join(installPath, 'skills', 'write', 'SKILL.md'), '# s')
+    const records = join(root, 'installed.json')
+    writeFileSync(records, JSON.stringify({ plugins: { 'demo@mp': [{ installPath, scope: 'user' }] } }))
+    const r = resolveSkill('demo:write', join(root, 'no-checkout'), { file: records, cwd: root })
+    expect(r.dir).toBe(join(installPath, 'skills', 'write'))
+    expect(r.pluginRoot).toBe(installPath)
+  })
+})
 import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
 
 describe('resolveEvalHome', () => {

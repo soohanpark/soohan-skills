@@ -24,17 +24,18 @@ export const resolveEvalHome = (cwd: string): string => {
 
 // 스킬 디렉터리에서 위로 올라가며 플러그인 매니페스트를 찾는다. 플러그인 이름의 권위 있는
 // 출처는 이 파일 하나뿐이다 — <plugin>/skills/<skill> 이든 <plugin>/<version>/skills/<skill> 이든
-// 매니페스트는 플러그인 루트에 있으므로 네 단계면 닿는다.
+// 매니페스트는 플러그인 루트에 있으므로 네 단계면 닿는다. 격리 레코딩(--plugin-dir)이
+// 그 루트 경로도 쓰므로 이름과 함께 돌려준다.
 const MANIFEST_SEARCH_DEPTH = 4
 
-const pluginNameFromManifest = (skillDir: string): string | null => {
+const findPluginManifest = (skillDir: string): { root: string; name: string } | null => {
   let dir = skillDir
   for (let up = 0; up < MANIFEST_SEARCH_DEPTH; up++) {
     const manifest = join(dir, '.claude-plugin', 'plugin.json')
     if (existsSync(manifest)) {
       try {
         const name = JSON.parse(readFileSync(manifest, 'utf8')).name
-        if (typeof name === 'string' && name !== '') return name
+        if (typeof name === 'string' && name !== '') return { root: dir, name }
       } catch {
         // 깨진 매니페스트는 없는 것으로 보고 경로 휴리스틱으로 넘어간다
       }
@@ -126,8 +127,8 @@ export const resolveSkill = (arg: string, repoRoot: string, opts: InstalledLooku
     // <repo>/.claude/skills/<name> 이 레포 루트의 plugin.json 을 집어 유령 접두사를 달 수 있다.
     if (rawPlugin === PERSONAL_SKILL_ROOT) return { id: skill, dir }
 
-    const fromManifest = pluginNameFromManifest(dir)
-    if (fromManifest) return { id: `${fromManifest}:${skill}`, dir }
+    const manifest = findPluginManifest(dir)
+    if (manifest) return { id: `${manifest.name}:${skill}`, dir, pluginRoot: manifest.root }
 
     // 매니페스트가 없는 설치본용 폴백 — 마켓플레이스 캐시 레이아웃은 버전 한 칸 위가 플러그인이다
     const plugin = /^\d+\.\d+/.test(rawPlugin ?? '') ? parts.at(-4) : rawPlugin
@@ -142,11 +143,13 @@ export const resolveSkill = (arg: string, repoRoot: string, opts: InstalledLooku
   }
   const [plugin, skill] = arg.split(':')
   // 체크아웃 안이면 레포 사본이 우선이다 — 지금 고치는 중인 그 파일을 재는 것이 맞다.
+  // pluginRoot 도 같은 사본에서 찾는다 — 격리 실행이 로드하는 플러그인과 judge 가 읽는
+  // SKILL.md 가 같은 트리여야 측정과 판정이 같은 대상을 본다.
   const inRepo = join(repoRoot, 'plugins', plugin, 'skills', skill)
-  if (existsSync(join(inRepo, 'SKILL.md'))) return { id: arg, dir: inRepo }
+  if (existsSync(join(inRepo, 'SKILL.md'))) return { id: arg, dir: inRepo, pluginRoot: findPluginManifest(inRepo)?.root }
 
   const installed = installedSkillDir(plugin, skill, opts)
-  if (installed) return { id: arg, dir: installed }
+  if (installed) return { id: arg, dir: installed, pluginRoot: findPluginManifest(installed)?.root }
 
   // 둘 다 없으면 원래 경로를 그대로 돌려준다 — CLI 계층의 skillMdExists 가 사람이 읽을
   // 메시지로 잡는다. 여기서 던지면 판정 문구가 두 군데로 갈린다.

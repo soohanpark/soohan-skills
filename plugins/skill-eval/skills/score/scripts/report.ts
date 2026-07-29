@@ -208,6 +208,21 @@ export const formatReport = (args: {
     lines.push('⚠ 부수효과 도구 허용 — MCP 서버와 외부 작용 도구를 켠 채 측정했습니다. 이 실행은 외부 시스템에 도달했을 수 있습니다.')
   }
 
+  // 격리 여부는 점수 해석의 전제다 — 비격리 트리거 축은 계정의 전역 스킬·훅·CLAUDE.md 와
+  // 경쟁한 결과라, 미발동이 description 신호가 아닐 수 있다 (msuarcade:init 실측: 실패 10건 중
+  // 9건이 전역 훅에 첫 턴을 뺏긴 것). 이 필드가 생기기 전 실행은 'off' 로 읽는다.
+  const isolation = meta.isolation ?? 'off'
+  if (isolation === 'full') {
+    lines.push('')
+    lines.push('격리 실행 — 빈 전용 cwd에서 유저 스코프를 제외하고 대상 플러그인만 로드했습니다. 트리거 축은 격리(진공) 발동률입니다.')
+  } else if (isolation === 'cwd') {
+    lines.push('')
+    lines.push('격리 실행(부분) — 빈 전용 cwd를 썼지만 개인 스킬이라 유저 스코프 스킬·지시문과는 경쟁한 발동률입니다.')
+  } else if ((meta.runtime ?? 'claude') === 'claude') {
+    lines.push('')
+    lines.push('⚠ 비격리 실행 — 계정의 전역 스킬·훅·CLAUDE.md 와 경쟁한 트리거 축입니다. 미발동을 description 탓으로 돌리기 전에 격리 기록으로 다시 재보세요.')
+  }
+
   if (meta.degradedBaseline && hasBaselineRuns) {
     lines.push('')
     lines.push('⚠ baseline 저하 — Read/Grep/Glob를 전면 차단해 실행했습니다. 파일을 읽는 스킬이면 품질 델타가 과대평가됩니다.')

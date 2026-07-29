@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isTransient, planRuns, recordAll } from '../../plugins/skill-eval/skills/score/scripts/record'
@@ -434,6 +434,91 @@ describe('중단·잘린 스트림 내성', () => {
     const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
     expect(res.skipped).toBe(0)
     expect(res.errorRate).toBe(0)
+  })
+})
+
+// 격리 실행: CLI 를 실행마다 새 빈 디렉터리에서 돌린다. 실제 워크스페이스에서 돌리면 baseline 이
+// 워크스페이스 문서를 뒤져 엉뚱한 답을 내고(실측), 프로젝트 CLAUDE.md 가 첫 턴을 뺏는다.
+// 같은 디렉터리를 재사용하면 앞 실행이 만든 파일이 스킬의 "빈 폴더" 전제를 깬다 — 매번 새로 판다.
+describe('recordAll · 격리 cwd', () => {
+  interface Snapshot { cwd: string | undefined; existed: boolean; entries: string[] | null }
+  const snapshotExec = (snapshots: Snapshot[], stdoutFor: (n: number) => string): Exec => {
+    let n = 0
+    return async (_args, opts) => {
+      n += 1
+      snapshots.push({
+        cwd: opts?.cwd,
+        existed: opts?.cwd ? existsSync(opts.cwd) : false,
+        entries: opts?.cwd ? readdirSync(opts.cwd) : null
+      })
+      return { stdout: stdoutFor(n), durationMs: 1 }
+    }
+  }
+
+  it('gives each execution a fresh empty cwd that is not the process cwd', async () => {
+    const plan = planRuns(cases, { variants: ['with'], repeats: 1 })
+    const snapshots: Snapshot[] = []
+    await recordAll({ plan, skill, outDir: out, exec: snapshotExec(snapshots, () => okStream), isolation: 'full' })
+    expect(snapshots.map(s => s.existed)).toEqual([true, true])
+    expect(snapshots.map(s => s.entries)).toEqual([[], []])
+    expect(new Set(snapshots.map(s => s.cwd)).size).toBe(2)
+    expect(snapshots[0].cwd).not.toBe(process.cwd())
+  })
+
+  it('removes the workspaces after the run', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const snapshots: Snapshot[] = []
+    await recordAll({ plan, skill, outDir: out, exec: snapshotExec(snapshots, () => okStream), isolation: 'full' })
+    expect(snapshots[0].cwd).toBeDefined()
+    expect(existsSync(snapshots[0].cwd as string)).toBe(false)
+  })
+
+  it('removes the workspace even when exec throws', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let ws: string | undefined
+    const exec: Exec = async (_args, opts) => { ws = opts?.cwd; throw new Error('spawn failed') }
+    await recordAll({ plan, skill, outDir: out, exec, isolation: 'full' })
+    expect(ws).toBeDefined()
+    expect(existsSync(ws as string)).toBe(false)
+  })
+
+  it('gives the transient retry its own fresh workspace', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const rateLimited = [
+      '{"type":"system","subtype":"init","model":"m","skills":[]}',
+      '{"type":"result","is_error":true,"terminal_reason":"rate_limit_error","total_cost_usd":0,"usage":{}}'
+    ].join('\n')
+    const snapshots: Snapshot[] = []
+    const exec = snapshotExec(snapshots, n => (n === 1 ? rateLimited : okStream))
+    await recordAll({ plan, skill, outDir: out, exec, sleep: noSleep, isolation: 'full' })
+    expect(snapshots).toHaveLength(2)
+    expect(snapshots[1].entries).toEqual([])
+    expect(snapshots[0].cwd).not.toBe(snapshots[1].cwd)
+  })
+
+  it('records the isolation level in meta.json', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, isolation: 'full' })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.isolation).toBe('full')
+  })
+
+  // 개인 스킬은 유저 스코프를 유지해야 로드되지만, cwd 격리는 그와 무관하게 항상 가능하다.
+  it('creates a workspace for cwd-level isolation too', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const snapshots: Snapshot[] = []
+    await recordAll({ plan, skill, outDir: out, exec: snapshotExec(snapshots, () => okStream), isolation: 'cwd' })
+    expect(snapshots[0].cwd).toBeDefined()
+    expect(snapshots[0].entries).toEqual([])
+  })
+
+  it('passes no cwd and records off when isolation is not requested', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    const snapshots: Snapshot[] = []
+    await recordAll({ plan, skill, outDir: out, exec: snapshotExec(snapshots, () => okStream) })
+    expect(snapshots[0].cwd).toBeUndefined()
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.isolation).toBe('off')
   })
 })
 
