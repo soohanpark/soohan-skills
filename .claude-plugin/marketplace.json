@@ -32,7 +32,7 @@
       "name": "skill-eval",
       "source": "./plugins/skill-eval",
       "description": "스킬의 트리거 정확도와 품질 델타를 실제 실행으로 측정하는 평가 하네스",
-      "version": "0.2.0",
+      "version": "0.2.1",
       "category": "meta",
       "tags": [
         "eval",

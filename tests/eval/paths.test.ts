@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+import { installedSkillDir, resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
 import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
 
 describe('resolveEvalHome', () => {
@@ -283,5 +283,125 @@ describe('buildRecordPlan', () => {
     expect(plan.filter(item => item.caseId === 'c')).toHaveLength(3)
     // b should have 5 items (3 with + 1 forced + 1 without)
     expect(plan.filter(item => item.caseId === 'b')).toHaveLength(5)
+  })
+})
+
+// 설치본을 쓰는 사람에게 plugin:skill id 는 사실상 쓸 수 없는 형식이었다 — eval 홈 아래
+// <홈>/plugins/<plugin>/skills/<skill> 만 찾아서 늘 빈 경로가 나왔다. 설치 경로는
+// ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/ 이고 버전이 디렉터리 이름이라
+// 재설치할 때마다 바뀐다 — 사람이 외워 넘기면 계속 어긋난다. 설치 기록에서 찾아준다.
+describe('installedSkillDir', () => {
+  let root: string
+  const write = (plugins: Record<string, unknown>) => {
+    const f = join(root, 'installed_plugins.json')
+    writeFileSync(f, JSON.stringify({ plugins }))
+    return f
+  }
+  const installed = (version: string, over: Record<string, unknown> = {}) => {
+    const p = join(root, 'cache', 'mk', 'msuarcade', version, 'skills', 'init')
+    mkdirSync(p, { recursive: true })
+    writeFileSync(join(p, 'SKILL.md'), '---\nname: init\n---\n')
+    return { installPath: join(root, 'cache', 'mk', 'msuarcade', version), version, ...over }
+  }
+
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-installed-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  it('finds the installed skill directory from the plugin id', () => {
+    const f = write({ 'msuarcade@msu-arcade-skills': [installed('0.0.10')] })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/anywhere' }))
+      .toBe(join(root, 'cache', 'mk', 'msuarcade', '0.0.10', 'skills', 'init'))
+  })
+
+  // 세션이 실제로 읽는 사본은 이 프로젝트에 설치된 것이다 — 그것을 재야 측정이 성립한다.
+  it('prefers the copy installed for the current project over any other', () => {
+    const f = write({
+      'msuarcade@mk': [
+        installed('0.0.6', { projectPath: '/proj/other' }),
+        installed('0.0.10', { projectPath: '/proj/here' })
+      ]
+    })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/proj/here' }))
+      .toContain('0.0.10')
+  })
+
+  it('matches a subdirectory of the installed project path', () => {
+    const f = write({ 'msuarcade@mk': [installed('0.0.6', { projectPath: '/proj/other' }), installed('0.0.10', { projectPath: '/proj/here' })] })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/proj/here/sub/dir' })).toContain('0.0.10')
+  })
+
+  it('falls back to a user-scope install when no project matches', () => {
+    const f = write({
+      'msuarcade@mk': [
+        installed('0.0.6', { projectPath: '/proj/other' }),
+        installed('0.0.9', { scope: 'user' })
+      ]
+    })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/somewhere/else' })).toContain('0.0.9')
+  })
+
+  it('falls back to the most recently updated install as a last resort', () => {
+    const f = write({
+      'msuarcade@mk': [
+        installed('0.0.6', { projectPath: '/a', lastUpdated: '2026-01-01T00:00:00Z' }),
+        installed('0.0.9', { projectPath: '/b', lastUpdated: '2026-07-29T00:00:00Z' })
+      ]
+    })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/nope' })).toContain('0.0.9')
+  })
+
+  it('ignores a different plugin whose name merely starts the same way', () => {
+    const f = write({ 'msuarcade-extra@mk': [installed('0.0.10')] })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/x' })).toBeNull()
+  })
+
+  it('returns null when the recorded install no longer holds that skill', () => {
+    const f = write({ 'msuarcade@mk': [{ installPath: join(root, 'gone'), version: '0.0.1' }] })
+    expect(installedSkillDir('msuarcade', 'init', { file: f, cwd: '/x' })).toBeNull()
+  })
+
+  it('returns null rather than crashing on a missing or malformed record file', () => {
+    expect(installedSkillDir('msuarcade', 'init', { file: join(root, 'nope.json'), cwd: '/x' })).toBeNull()
+    const broken = join(root, 'broken.json')
+    writeFileSync(broken, '{ not json')
+    expect(installedSkillDir('msuarcade', 'init', { file: broken, cwd: '/x' })).toBeNull()
+  })
+})
+
+describe('resolveSkill · 설치본 id 해석', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-resolve-installed-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  const record = (version: string) => {
+    const dir = join(root, 'cache', 'mk', 'msuarcade', version, 'skills', 'init')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'SKILL.md'), '---\nname: init\n---\n')
+    const f = join(root, 'installed.json')
+    writeFileSync(f, JSON.stringify({ plugins: { 'msuarcade@mk': [{ installPath: join(root, 'cache', 'mk', 'msuarcade', version), version }] } }))
+    return f
+  }
+
+  it('resolves an id to the installed copy when the eval home has no such skill', () => {
+    const f = record('0.0.10')
+    const r = resolveSkill('msuarcade:init', join(root, 'evalhome'), { file: f, cwd: '/x' })
+    expect(r.id).toBe('msuarcade:init')
+    expect(r.dir).toContain(join('msuarcade', '0.0.10', 'skills', 'init'))
+    expect(skillMdExists(r)).toBe(true)
+  })
+
+  // 체크아웃 안에서 재는 경우 레포 사본이 우선이다 — 기존 동작을 바꾸지 않는다.
+  it('still prefers the checkout copy when one exists', () => {
+    const f = record('0.0.10')
+    const repo = join(root, 'evalhome', 'plugins', 'msuarcade', 'skills', 'init')
+    mkdirSync(repo, { recursive: true })
+    writeFileSync(join(repo, 'SKILL.md'), '---\nname: init\n---\n')
+    expect(resolveSkill('msuarcade:init', join(root, 'evalhome'), { file: f, cwd: '/x' }).dir).toBe(repo)
+  })
+
+  it('falls back to the eval-home path when nothing is installed either', () => {
+    const r = resolveSkill('msuarcade:init', join(root, 'evalhome'), { file: join(root, 'none.json'), cwd: '/x' })
+    expect(r.dir).toBe(join(root, 'evalhome', 'plugins', 'msuarcade', 'skills', 'init'))
+    expect(skillMdExists(r)).toBe(false)
   })
 })
