@@ -36,6 +36,34 @@ export const execFailureReason = (outcome: ExecOutcome, cli: string = 'claude'):
 
 const STREAM_ARGS = ['--output-format', 'stream-json', '--verbose']
 
+// 실행이 끝난 뒤에도 남는 일을 만들거나 이 프로세스 밖으로 나가는 내장 도구들. 측정에는
+// 필요 없고, 무인으로 수십 번 반복되는 실행에서 잘못 불리면 되돌릴 수 없다.
+// 읽기 전용 사촌(CronList·TaskGet·TaskList·TaskOutput)은 남겨둔다.
+export const SIDE_EFFECT_TOOLS = [
+  'CronCreate', 'CronDelete', 'RemoteTrigger', 'PushNotification', 'ScheduleWakeup',
+  'SendMessage', 'Task', 'Workflow', 'TaskCreate', 'TaskUpdate', 'TaskStop',
+  'DesignSync', 'EnterWorktree', 'ExitWorktree', 'Monitor'
+]
+
+// MCP 를 감싸는 스킬은 그 도구를 뺏으면 측정이 성립하지 않는다. 그때만 켜는 명시적 탈출구다.
+export const sideEffectsAllowed = (): boolean =>
+  process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS === '1'
+
+// 실측(2026-07-29, claude-code 2.1.220): 헤드리스 -p 는 세션의 도구 레지스트리를 그대로
+// 상속한다 — 기본 149개 중 116개가 연결된 MCP 서버였고, Gmail·Slack·Notion·Drive 의 쓰기
+// 도구까지 열려 있었다. 실제 측정 중 회사 Slack MCP 가 호출된 사례가 보고됐다.
+// --strict-mcp-config 를 --mcp-config 없이 주면 MCP 가 전부 끊긴다 (149→30 실측).
+// 여기에 위 목록을 더하면 15개가 남는다 — Bash·Read·Write·Edit·Skill·WebSearch 는 살아 있어서
+// 스킬이 일할 능력은 그대로다. 능력을 뺏으면 도구가 없어서 진 것을 품질로 읽게 된다.
+// --disallowedTools 는 가변인자라 두 번 넘기면 파싱이 어긋난다 — 반드시 한 번에 합쳐서 넘긴다.
+const restrictionArgs = (extraDenied: string[]): string[] => {
+  const denied = sideEffectsAllowed() ? extraDenied : [...SIDE_EFFECT_TOOLS, ...extraDenied]
+  return [
+    ...(sideEffectsAllowed() ? [] : ['--strict-mcp-config']),
+    ...(denied.length > 0 ? ['--disallowedTools', ...denied] : [])
+  ]
+}
+
 export const buildArgs = (
   variant: Variant,
   skill: SkillRef,
@@ -44,7 +72,7 @@ export const buildArgs = (
 ): string[] => {
   if (variant === 'with') {
     // 트리거는 첫 턴에 결정되므로 그 뒤 실행은 전부 낭비다 (설계 §3-3)
-    return ['-p', prompt, ...STREAM_ARGS, '--max-turns', '1']
+    return ['-p', prompt, ...STREAM_ARGS, '--max-turns', '1', ...restrictionArgs([])]
   }
 
   if (variant === 'without') {
@@ -52,12 +80,12 @@ export const buildArgs = (
     const denied = opts.degradedBaseline
       ? ['Skill', 'Read', 'Grep', 'Glob']
       : ['Skill', `Read(${skill.dir}/**)`]
-    return ['-p', prompt, '--disallowedTools', ...denied, ...STREAM_ARGS]
+    return ['-p', prompt, ...STREAM_ARGS, ...restrictionArgs(denied)]
   }
 
   // 검증(2026-07-24): claude -p "/plugin:skill ..." 가 -p 모드에서도 Skill tool_use를
   // 실제로 발동시킨다 (stream-json에 "name":"Skill","input":{"skill":"<id>"} 확인).
-  return ['-p', `/${skill.id} ${prompt}`, ...STREAM_ARGS]
+  return ['-p', `/${skill.id} ${prompt}`, ...STREAM_ARGS, ...restrictionArgs([])]
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000

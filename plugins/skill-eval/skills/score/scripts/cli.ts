@@ -30,11 +30,18 @@ const isMain = () => {
 if (isMain()) {
   const repoRoot = resolveEvalHome(process.cwd())
   const [sub, arg] = process.argv.slice(2)
-  if (sub === 'record' && arg) await cmdRecord(arg, repoRoot, process.argv.slice(4))
-  else if (sub === 'report' && arg === '--diff') cmdDiff(process.argv[4], process.argv[5], repoRoot)
-  else if (sub === 'report' && arg) cmdReport(arg, repoRoot)
-  else if (sub === 'judge' && arg) await cmdJudge(arg, repoRoot)
-  else if (sub === 'mine' && arg) await cmdMine(arg, repoRoot)
-  else { usage(repoRoot); process.exit(1) }
+  try {
+    if (sub === 'record' && arg) await cmdRecord(arg, repoRoot, process.argv.slice(4))
+    else if (sub === 'report' && arg === '--diff') cmdDiff(process.argv[4], process.argv[5], repoRoot)
+    else if (sub === 'report' && arg) cmdReport(arg, repoRoot)
+    else if (sub === 'judge' && arg) await cmdJudge(arg, repoRoot)
+    else if (sub === 'mine' && arg) await cmdMine(arg, repoRoot)
+    else { usage(repoRoot); process.exit(1) }
+  } catch (e) {
+    // 케이스 파일 문법 오류·경로 해석 실패는 사용자가 고칠 입력 문제다. 스택 트레이스는
+    // 고칠 곳을 가리지 않으므로 메시지만 보여준다.
+    console.error(`✗ ${(e as Error).message}`)
+    process.exit(1)
+  }
 }
 /* v8 ignore stop */

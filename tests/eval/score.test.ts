@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures, scoreRules, summarizeExecution, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
+import { scoreTrigger, collectFailures, forcedUsable, scoreRules, summarizeExecution, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
 import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
 import type { IndexEntry } from '../../plugins/skill-eval/skills/score/scripts/record'
 
 const parsed = (over: Partial<IndexEntry['parsed']> = {}) => ({
   triggered: false, skillReadFallback: false, finalText: '',
-  status: 'ok' as const, terminalReason: 'success', tokens: 0, costUsd: 0,
+  status: 'ok' as const, terminalReason: 'completed', truncated: false, permissionDenials: [] as string[], tokens: 0, costUsd: 0,
   model: 'm', loadedSkills: [], ...over
 })
 
@@ -62,6 +62,23 @@ describe('scoreTrigger', () => {
     const s = scoreTrigger(index, cases)
     expect(s.test.positive.total).toBe(0)
     expect(s.test.nError).toBe(2)
+  })
+
+  // 분모에서 빼는 것은 옳지만, 빠졌다는 사실이 안 남으면 남은 케이스만으로 100% 가 나와
+  // 게이트를 통과한다. 어느 케이스가 측정되지 않았는지 이름을 남긴다.
+  it('names the cases it had to drop so the shrunken denominator is visible', () => {
+    const index = [
+      entry('p1', 1, { status: 'error' }), entry('p1', 2, { status: 'timeout' }),
+      entry('p2', 1, { status: 'error' })
+    ]
+    const s = scoreTrigger(index, cases)
+    expect(s.test.undecided).toEqual(['p1'])
+    expect(s.train.undecided).toEqual(['p2'])
+  })
+
+  it('leaves undecided empty when every case had at least one usable repeat', () => {
+    const index = [entry('p1', 1, { status: 'error' }), entry('p1', 2, { triggered: true })]
+    expect(scoreTrigger(index, cases).test.undecided).toEqual([])
   })
 
   it('ignores non-with variants', () => {
@@ -154,7 +171,7 @@ describe('scoreRules', () => {
   ]
 
   const forced = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
-    ...entry(caseId, 1, over),
+    ...entry(caseId, 1, { triggered: true, ...over }),
     variant: 'forced'
   })
 
@@ -178,6 +195,23 @@ describe('scoreRules', () => {
     expect(s.failures).toEqual([{ caseId: 'q1', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
   })
 
+  // forced 는 슬래시 커맨드로 강제 발동시키는 변형이다. id 가 틀리면 존재하지 않는 커맨드가
+  // 프롬프트에 얹힌 채 모델이 그냥 답하고, 그 답이 스킬 점수로 계상됐다 — 아무도 parsed.triggered
+  // 를 확인하지 않았기 때문이다.
+  it('refuses to score an answer produced without the skill ever loading', () => {
+    const index = [forced('q1', { triggered: false, finalText: '## 변경 사항\n내용' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.test.total).toBe(0)
+    expect(s.failures[0].detail).toMatch(/발동하지 않았습니다/)
+  })
+
+  it('refuses to score a truncated answer — that measures the turn limit, not the skill', () => {
+    const index = [forced('q1', { truncated: true, terminalReason: 'max_turns', finalText: '## 변경 사항' })]
+    const s = scoreRules(index, ruleCases)
+    expect(s.test.total).toBe(0)
+    expect(s.failures[0].detail).toMatch(/잘렸습니다/)
+  })
+
   it('excludes an errored forced run from pass/total but lists it as a failure — the shrunken denominator must be visible', () => {
     const index = [forced('q1', { status: 'error', terminalReason: 'api_error' })]
     const s = scoreRules(index, ruleCases)
@@ -192,9 +226,12 @@ describe('scoreRules', () => {
     expect(s.failures[0].kind).toBe('timeout')
   })
 
-  it('excludes a case with no forced run at all', () => {
+  // 실행 기록이 없는 케이스도 분모에서 빠진 사실을 남긴다 — 판정이 그 축소를 봐야 한다.
+  it('records a case with no forced run at all as undecided, not as absent', () => {
     const s = scoreRules([], ruleCases)
-    expect(s).toEqual({ train: { pass: 0, total: 0 }, test: { pass: 0, total: 0 }, failures: [] })
+    expect(s.test).toEqual({ pass: 0, total: 0, undecided: ['q1'] })
+    expect(s.train).toEqual({ pass: 0, total: 0, undecided: ['q3'] })
+    expect(s.failures).toEqual([])
   })
 
   it('ignores with/without runs for the same case id — only forced counts', () => {
@@ -206,15 +243,16 @@ describe('scoreRules', () => {
   it('keeps a train-split rule failure out of the test tally, though it still appears in failures', () => {
     const index = [forced('q3', { finalText: '엉뚱한 내용' })]
     const s = scoreRules(index, ruleCases)
-    expect(s.train).toEqual({ pass: 0, total: 1 })
-    expect(s.test).toEqual({ pass: 0, total: 0 })
+    expect(s.train).toEqual({ pass: 0, total: 1, undecided: [] })
+    // q1 은 test split 인데 forced 기록이 없다 — 분모에서 빠진 사실이 남아야 한다
+    expect(s.test).toEqual({ pass: 0, total: 0, undecided: ['q1'] })
     expect(s.failures).toEqual([{ caseId: 'q3', kind: 'must', detail: 'must 누락: "## 변경 사항"' }])
   })
 })
 
 describe('tokenDelta', () => {
   const forced = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
-    ...entry(caseId, 1, over),
+    ...entry(caseId, 1, { triggered: true, ...over }),
     variant: 'forced'
   })
 
@@ -269,10 +307,165 @@ describe('summarizeExecution', () => {
       { ...entry('q1', 1, { status: 'timeout' }), variant: 'forced' },
       { ...entry('q2', 1, { status: 'error' }), variant: 'without', durationMs: 5 }
     ]
-    expect(summarizeExecution(index)).toEqual({ ok: 1, total: 3, timeouts: 1, errors: 1, durationMs: 7 })
+    expect(summarizeExecution(index)).toEqual({ ok: 1, total: 3, timeouts: 1, errors: 1, durationMs: 7, costUsd: 0 })
   })
 
   it('is all zeros for an empty index', () => {
-    expect(summarizeExecution([])).toEqual({ ok: 0, total: 0, timeouts: 0, errors: 0, durationMs: 0 })
+    expect(summarizeExecution([])).toEqual({ ok: 0, total: 0, timeouts: 0, errors: 0, durationMs: 0, costUsd: 0 })
+  })
+})
+
+describe('forcedUsable', () => {
+  const run = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    caseId: 'q1', variant: 'forced', repeat: 1, file: 'f.jsonl', durationMs: 1,
+    parsed: {
+      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'x',
+      status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: 'm', loadedSkills: []
+    }
+  })
+  const withParsed = (over: Partial<IndexEntry['parsed']>): IndexEntry => {
+    const base = run()
+    return { ...base, parsed: { ...base.parsed, ...over } }
+  }
+
+  it('accepts a completed run that actually loaded the skill', () => {
+    expect(forcedUsable(run()).usable).toBe(true)
+  })
+
+  it('rejects an errored run and keeps the terminal reason for the failure list', () => {
+    const r = forcedUsable(withParsed({ status: 'error', terminalReason: 'api_error' }))
+    expect(r.usable).toBe(false)
+    expect(r.usable === false && r.kind).toBe('error')
+    expect(r.usable === false && r.detail).toContain('api_error')
+  })
+
+  it('keeps timeout distinguishable from a plain error', () => {
+    const r = forcedUsable(withParsed({ status: 'timeout', terminalReason: 'claude timed out after 600000ms' }))
+    expect(r.usable === false && r.kind).toBe('timeout')
+  })
+
+  it('rejects a truncated run', () => {
+    expect(forcedUsable(withParsed({ truncated: true })).usable).toBe(false)
+  })
+
+  it('rejects a run where the skill never loaded', () => {
+    expect(forcedUsable(withParsed({ triggered: false })).usable).toBe(false)
+  })
+})
+
+describe('scoreTrigger · 실행 기록이 없는 케이스', () => {
+  // record 가 중간에 끊기면 index 에 앞부분만 담긴다. 조용히 넘기면 부분 index 가 완주한
+  // 런과 구분 없이 채점돼 "돌린 것만 세서 100%" 가 나온다.
+  it('records a planned case with no runs as notRun', () => {
+    const s = scoreTrigger([entry('p1', 1, { triggered: true })], cases)
+    expect(s.test.notRun).toEqual(['n1'])
+    expect(s.train.notRun).toEqual(['p2'])
+  })
+
+  it('leaves notRun empty for a complete index', () => {
+    const s = scoreTrigger([entry('p1', 1), entry('n1', 1), entry('p2', 1)], cases)
+    expect(s.test.notRun).toEqual([])
+    expect(s.train.notRun).toEqual([])
+  })
+
+  it('keeps notRun and undecided distinct — one never ran, the other ran and errored', () => {
+    const s = scoreTrigger([entry('p1', 1, { status: 'error' }), entry('n1', 1)], cases)
+    expect(s.test.undecided).toEqual(['p1'])
+    expect(s.test.notRun).toEqual([])
+    expect(s.train.notRun).toEqual(['p2'])
+  })
+})
+
+describe('tokenDelta · 비교 가능한 짝만 센다', () => {
+  const f = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, { triggered: true, ...over }), variant: 'forced'
+  })
+  const w = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry(caseId, 1, over), variant: 'without'
+  })
+
+  it('drops a truncated forced run — its tokens measure the turn limit, not the skill', () => {
+    expect(tokenDelta([f('q1', { tokens: 5000, truncated: true }), w('q1', { tokens: 100 })])).toBe(null)
+  })
+
+  it('drops a forced run where the skill never loaded', () => {
+    expect(tokenDelta([f('q1', { tokens: 5000, triggered: false }), w('q1', { tokens: 100 })])).toBe(null)
+  })
+
+  it('drops a truncated baseline rather than comparing against a cut-off answer', () => {
+    const d = tokenDelta([f('q1', { tokens: 400 }), w('q1', { tokens: 9000, truncated: true })])
+    expect(d).toEqual({ forced: 400, without: null })
+  })
+
+  it('still pairs runs that are usable on both sides', () => {
+    expect(tokenDelta([f('q1', { tokens: 400 }), w('q1', { tokens: 900 })])).toEqual({ forced: 400, without: 900 })
+  })
+})
+
+describe('summarizeExecution · 비용 합산', () => {
+  it('adds up what each run cost', () => {
+    const index = [
+      entry('p1', 1, { costUsd: 0.1 }),
+      { ...entry('p1', 2, { costUsd: 0.25 }), variant: 'forced' as const },
+      entry('p1', 3, { costUsd: 0 })
+    ]
+    expect(summarizeExecution(index).costUsd).toBeCloseTo(0.35)
+  })
+})
+
+// 권한 거부는 실행을 멈추지 않는다 — 스킬이 도구를 못 쓴 채 "권한을 주세요" 라고 답하고
+// 정상 종료한다. 그 답에 must/must_not 을 매기면 품질 실패로, 심판에게 주면 패배로 계상된다.
+// 둘 다 스킬의 품질이 아니라 측정 조건의 문제다.
+describe('권한 거부는 품질 실패가 아니라 판정 불가다', () => {
+  const forcedRun = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry('q1', 1, { triggered: true, ...over }), variant: 'forced'
+  })
+  const ruleCases: EvalCase[] = [
+    { id: 'q1', prompt: 'x', expect: 'trigger', split: 'test', must: ['## 변경 사항'] }
+  ]
+
+  it('refuses to score an answer the skill was blocked from producing', () => {
+    const r = forcedUsable(forcedRun({ permissionDenials: ['Write'], finalText: '권한을 주세요' }))
+    expect(r.usable).toBe(false)
+    expect(r.usable === false && r.detail).toMatch(/권한 거부/)
+    expect(r.usable === false && r.detail).toContain('Write')
+  })
+
+  it('names the denial rather than blaming the skill id when the Skill call itself was blocked', () => {
+    const r = forcedUsable(forcedRun({ triggered: false, permissionDenials: ['Skill'] }))
+    expect(r.usable === false && r.detail).toMatch(/권한 거부/)
+    expect(r.usable === false && r.detail).not.toMatch(/스킬 id/)
+  })
+
+  it('deduplicates repeated denials of the same tool', () => {
+    const r = forcedUsable(forcedRun({ permissionDenials: ['Write', 'Write', 'Bash'] }))
+    expect(r.usable === false && r.detail).toContain('Write, Bash')
+  })
+
+  it('keeps the case out of the must/must_not denominator and marks it undecided', () => {
+    const s = scoreRules([forcedRun({ permissionDenials: ['Write'], finalText: '권한을 주세요' })], ruleCases)
+    expect(s.test).toEqual({ pass: 0, total: 0, undecided: ['q1'] })
+  })
+
+  // 발동하려다 막힌 것을 미발동으로 세면 멀쩡한 description 을 고치게 된다.
+  it('does not count a blocked Skill call as a non-trigger on the trigger axis', () => {
+    const blocked = entry('p1', 1, { triggered: false, permissionDenials: ['Skill'] })
+    const s = scoreTrigger([blocked], cases)
+    expect(s.test.positive.total).toBe(0)
+    expect(s.test.undecided).toEqual(['p1'])
+    expect(collectFailures([blocked], cases).some(f => f.kind === '미발동')).toBe(false)
+  })
+
+  it('leaves the trigger axis alone when an unrelated tool was denied', () => {
+    const s = scoreTrigger([entry('p1', 1, { triggered: true, permissionDenials: ['Write'] })], cases)
+    expect(s.test.positive).toEqual({ hit: 1, total: 1 })
+  })
+
+  // runs/ 는 gitignore 대상이라 이 필드가 없는 옛 index.json 이 남아 있을 수 있다.
+  it('reads an old index entry that predates the field without crashing', () => {
+    const legacy = forcedRun()
+    delete (legacy.parsed as Partial<IndexEntry['parsed']>).permissionDenials
+    expect(forcedUsable(legacy).usable).toBe(true)
+    expect(() => scoreTrigger([legacy], cases)).not.toThrow()
   })
 })

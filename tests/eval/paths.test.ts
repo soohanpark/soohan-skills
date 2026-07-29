@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { resolveEvalHome, resolveSkill, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+import { resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
 import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
 
 describe('resolveEvalHome', () => {
@@ -72,6 +72,79 @@ describe('resolveSkill', () => {
     const r = resolveSkill('/u/.claude/plugins/cache/official/dry-skill/1.2.0/skills/run', '/repo')
     expect(r.id).toBe('dry-skill:run')
   })
+
+  // 개인/팀 로컬 스킬은 플러그인이 없는 것이 정상이고, 실제 id 는 접두사 없는 맨 이름이다.
+  // 통째로 거부하면 ~/.claude/skills 아래 스킬은 측정 자체가 불가능해진다.
+  it('gives a personal ~/.claude/skills/<name> skill its bare id', () => {
+    const r = resolveSkill('/Users/x/Company/.claude/skills/voice-ko', '/repo')
+    expect(r.id).toBe('voice-ko')
+    expect(r.dir).toBe('/Users/x/Company/.claude/skills/voice-ko')
+  })
+})
+
+// 경로에서 플러그인 이름을 "유추"하면 마켓플레이스가 버전 칸에 커밋 SHA 를 쓰는 순간 무너진다.
+// 유령 id 는 예외도 안 던지므로 발동 판정(input.skill === skillId)이 항상 false 가 되어
+// "발동률 0%" 가 조용히 나오고, description 탓으로 오독하게 된다 (외부 실측 보고 2026-07-28).
+describe('resolveSkill · plugin.json 을 권위로 삼는다', () => {
+  let root: string
+  const plugin = (dir: string, name: string) => {
+    mkdirSync(join(dir, '.claude-plugin'), { recursive: true })
+    writeFileSync(join(dir, '.claude-plugin', 'plugin.json'), JSON.stringify({ name }))
+  }
+
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-paths-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  it('reads the plugin name from the manifest instead of the directory name', () => {
+    const base = join(root, 'plugins', 'msu-arcade-skills')
+    const skillDir = join(base, 'skills', 'migrate')
+    mkdirSync(skillDir, { recursive: true })
+    plugin(base, 'msuarcade')
+    expect(resolveSkill(skillDir, '/repo').id).toBe('msuarcade:migrate')
+  })
+
+  it('resolves a commit-SHA cache layout that the version heuristic cannot detect', () => {
+    const versioned = join(root, 'cache', 'msu-arcade-skills', 'msuarcade', 'fc030ea1e63b')
+    const skillDir = join(versioned, 'skills', 'migrate')
+    mkdirSync(skillDir, { recursive: true })
+    plugin(versioned, 'msuarcade')
+    expect(resolveSkill(skillDir, '/repo').id).toBe('msuarcade:migrate')
+  })
+
+  it('falls back to the path heuristic when there is no manifest', () => {
+    const skillDir = join(root, 'demo', 'skills', 'write')
+    mkdirSync(skillDir, { recursive: true })
+    expect(resolveSkill(skillDir, '/repo').id).toBe('demo:write')
+  })
+
+  it('ignores a malformed manifest rather than crashing', () => {
+    const base = join(root, 'demo')
+    const skillDir = join(base, 'skills', 'write')
+    mkdirSync(join(base, '.claude-plugin'), { recursive: true })
+    mkdirSync(skillDir, { recursive: true })
+    writeFileSync(join(base, '.claude-plugin', 'plugin.json'), '{ not json')
+    expect(resolveSkill(skillDir, '/repo').id).toBe('demo:write')
+  })
+})
+
+// 존재하지 않는 디렉터리를 가리키면 forced 변형이 존재하지 않는 슬래시 커맨드를 호출한다 —
+// 그 변형은 턴 제한도 도구 제한도 없어서, 측정 대신 전권 도구로 프롬프트만 자유 실행된다.
+describe('skillMdExists', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-skillmd-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  it('is true only when the resolved directory actually holds a SKILL.md', () => {
+    const dir = join(root, 'demo', 'skills', 'write')
+    mkdirSync(dir, { recursive: true })
+    expect(skillMdExists({ id: 'demo:write', dir })).toBe(false)
+    writeFileSync(join(dir, 'SKILL.md'), '---\nname: write\n---\n')
+    expect(skillMdExists({ id: 'demo:write', dir })).toBe(true)
+  })
+
+  it('is false for a directory that does not exist at all', () => {
+    expect(skillMdExists({ id: 'demo:write', dir: join(root, 'nope') })).toBe(false)
+  })
 })
 
 describe('slug', () => {
@@ -83,12 +156,19 @@ describe('slug', () => {
 describe('runDirName', () => {
   it('combines a timestamp and the skill slug', () => {
     expect(runDirName('demo:write', new Date('2026-07-23T14:02:33Z')))
-      .toBe('2026-07-23T14-02--demo.write')
+      .toBe('2026-07-23T14-02-33--demo.write')
   })
 
   it('is stable for the same instant', () => {
     const d = new Date('2026-07-23T14:02:33Z')
     expect(runDirName('a:b', d)).toBe(runDirName('a:b', d))
+  })
+
+  // 분 단위였을 때는 SKILL.md 를 고치고 60초 안에 다시 돌리면 직전 런 디렉터리를 그대로 재사용해
+  // 한 번도 실행하지 않은 채 옛 스트림으로 index 를 재구성하고 meta 만 새 SHA 로 덮었다.
+  it('separates two runs started in the same minute', () => {
+    expect(runDirName('a:b', new Date('2026-07-23T14:02:03Z')))
+      .not.toBe(runDirName('a:b', new Date('2026-07-23T14:02:47Z')))
   })
 })
 

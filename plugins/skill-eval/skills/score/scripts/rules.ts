@@ -4,7 +4,15 @@ const REGEX_FORM = /^\/(.*)\/([gimsuy]*)$/
 
 const matches = (text: string, rule: string): boolean => {
   const m = REGEX_FORM.exec(rule)
-  if (m) return new RegExp(m[1], m[2]).test(text)
+  if (m) {
+    try {
+      return new RegExp(m[1], m[2]).test(text)
+    } catch {
+      // 잘못된 패턴(예: must: ["/api/v1(beta/"]) 하나가 report 전체를 죽이면 안 된다.
+      // 정규식으로 못 읽으면 애초에 리터럴이었을 가능성이 높으므로 그렇게 취급한다.
+      return text.includes(rule)
+    }
+  }
   return text.includes(rule)
 }
 
