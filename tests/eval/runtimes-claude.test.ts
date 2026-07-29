@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { buildArgs, execFailureReason, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
 
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
@@ -14,9 +14,11 @@ describe('buildArgs', () => {
     expect(args).toEqual(expect.arrayContaining(['--max-turns', '1']))
   })
 
-  it('does not restrict tools in the with-variant', () => {
+  it('does not restrict the skill\'s own working tools in the with-variant', () => {
     const args = buildArgs('with', skill, 'x')
-    expect(args).not.toContain('--disallowedTools')
+    expect(args).not.toContain('Read')
+    expect(args).not.toContain('Grep')
+    expect(args).not.toContain('Glob')
   })
 
   it('blocks both the Skill tool and reads of the skill directory in the without-variant', () => {
@@ -129,5 +131,77 @@ describe('execFailureReason', () => {
     const reason = execFailureReason(outcome)
     expect(reason).not.toBeNull()
     expect(reason).toContain('exit 1')
+  })
+})
+
+// 헤드리스 -p 는 세션의 도구 레지스트리를 그대로 상속한다. 실측(2026-07-29)에서 기본 상태의
+// 도구가 149개였고 그중 116개가 연결된 MCP 서버였다 — 평가 실행이 회사 Slack MCP 를 호출한
+// 사례가 실제로 보고됐다. 평가는 무인으로 수십 번 반복되므로 되돌릴 수 없는 도구를 열어둘 수 없다.
+describe('buildArgs · 부수효과 도구 차단', () => {
+  const saved = process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS
+  afterEach(() => {
+    if (saved === undefined) delete process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS
+    else process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = saved
+  })
+
+  const variants = ['with', 'forced', 'without'] as const
+
+  it('cuts MCP servers off on every variant', () => {
+    for (const v of variants) {
+      expect(buildArgs(v, skill, 'x'), v).toContain('--strict-mcp-config')
+    }
+  })
+
+  it('denies tools whose effects outlive the run, on every variant', () => {
+    for (const v of variants) {
+      const args = buildArgs(v, skill, 'x')
+      for (const tool of ['CronCreate', 'RemoteTrigger', 'PushNotification', 'SendMessage', 'Task', 'Workflow']) {
+        expect(args, `${v}/${tool}`).toContain(tool)
+      }
+    }
+  })
+
+  // 스킬이 일할 능력까지 뺏으면 측정 자체가 왜곡된다 — 도구를 못 써서 진 것을 품질로 읽게 된다.
+  it('leaves the skill able to do its work', () => {
+    const args = buildArgs('forced', skill, 'x')
+    for (const tool of ['Bash', 'Read', 'Write', 'Edit', 'Skill', 'WebSearch']) {
+      expect(args, tool).not.toContain(tool)
+    }
+  })
+
+  // --disallowedTools 는 가변인자다. 두 번 넘기면 뒤엣것이 앞엣것을 덮거나 파싱이 어긋난다.
+  it('passes exactly one --disallowedTools even when the baseline adds its own', () => {
+    const args = buildArgs('without', skill, 'x', { degradedBaseline: true })
+    expect(args.filter(a => a === '--disallowedTools')).toHaveLength(1)
+    expect(args).toContain('Grep')
+    expect(args).toContain('CronCreate')
+  })
+
+  it('still blocks the baseline\'s own tools alongside the guard', () => {
+    const args = buildArgs('without', skill, 'x')
+    expect(args).toContain('Skill')
+    expect(args).toContain(`Read(${skill.dir}/**)`)
+    expect(args).toContain('--strict-mcp-config')
+  })
+
+  // MCP 를 감싸는 스킬은 도구를 뺏으면 측정이 성립하지 않는다 — 명시적 탈출구를 둔다.
+  it('lifts the guard when the operator opts in explicitly', () => {
+    process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = '1'
+    const args = buildArgs('forced', skill, 'x')
+    expect(args).not.toContain('--strict-mcp-config')
+    expect(args).not.toContain('CronCreate')
+  })
+
+  it('still blocks the baseline\'s own tools when the guard is lifted', () => {
+    process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = '1'
+    const args = buildArgs('without', skill, 'x', { degradedBaseline: true })
+    expect(args).toContain('--disallowedTools')
+    expect(args).toContain('Grep')
+    expect(args).not.toContain('CronCreate')
+  })
+
+  it('does not treat any other value as opt-in', () => {
+    process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = 'true'
+    expect(buildArgs('forced', skill, 'x')).toContain('--strict-mcp-config')
   })
 })

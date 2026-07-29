@@ -5,7 +5,7 @@ import type { IndexEntry } from '../../plugins/skill-eval/skills/score/scripts/r
 
 const parsed = (over: Partial<IndexEntry['parsed']> = {}) => ({
   triggered: false, skillReadFallback: false, finalText: '',
-  status: 'ok' as const, terminalReason: 'completed', truncated: false, tokens: 0, costUsd: 0,
+  status: 'ok' as const, terminalReason: 'completed', truncated: false, permissionDenials: [] as string[], tokens: 0, costUsd: 0,
   model: 'm', loadedSkills: [], ...over
 })
 
@@ -319,7 +319,7 @@ describe('forcedUsable', () => {
   const run = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
     caseId: 'q1', variant: 'forced', repeat: 1, file: 'f.jsonl', durationMs: 1,
     parsed: {
-      triggered: true, truncated: false, skillReadFallback: false, finalText: 'x',
+      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'x',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: 'm', loadedSkills: []
     }
   })
@@ -410,5 +410,62 @@ describe('summarizeExecution · 비용 합산', () => {
       entry('p1', 3, { costUsd: 0 })
     ]
     expect(summarizeExecution(index).costUsd).toBeCloseTo(0.35)
+  })
+})
+
+// 권한 거부는 실행을 멈추지 않는다 — 스킬이 도구를 못 쓴 채 "권한을 주세요" 라고 답하고
+// 정상 종료한다. 그 답에 must/must_not 을 매기면 품질 실패로, 심판에게 주면 패배로 계상된다.
+// 둘 다 스킬의 품질이 아니라 측정 조건의 문제다.
+describe('권한 거부는 품질 실패가 아니라 판정 불가다', () => {
+  const forcedRun = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry('q1', 1, { triggered: true, ...over }), variant: 'forced'
+  })
+  const ruleCases: EvalCase[] = [
+    { id: 'q1', prompt: 'x', expect: 'trigger', split: 'test', must: ['## 변경 사항'] }
+  ]
+
+  it('refuses to score an answer the skill was blocked from producing', () => {
+    const r = forcedUsable(forcedRun({ permissionDenials: ['Write'], finalText: '권한을 주세요' }))
+    expect(r.usable).toBe(false)
+    expect(r.usable === false && r.detail).toMatch(/권한 거부/)
+    expect(r.usable === false && r.detail).toContain('Write')
+  })
+
+  it('names the denial rather than blaming the skill id when the Skill call itself was blocked', () => {
+    const r = forcedUsable(forcedRun({ triggered: false, permissionDenials: ['Skill'] }))
+    expect(r.usable === false && r.detail).toMatch(/권한 거부/)
+    expect(r.usable === false && r.detail).not.toMatch(/스킬 id/)
+  })
+
+  it('deduplicates repeated denials of the same tool', () => {
+    const r = forcedUsable(forcedRun({ permissionDenials: ['Write', 'Write', 'Bash'] }))
+    expect(r.usable === false && r.detail).toContain('Write, Bash')
+  })
+
+  it('keeps the case out of the must/must_not denominator and marks it undecided', () => {
+    const s = scoreRules([forcedRun({ permissionDenials: ['Write'], finalText: '권한을 주세요' })], ruleCases)
+    expect(s.test).toEqual({ pass: 0, total: 0, undecided: ['q1'] })
+  })
+
+  // 발동하려다 막힌 것을 미발동으로 세면 멀쩡한 description 을 고치게 된다.
+  it('does not count a blocked Skill call as a non-trigger on the trigger axis', () => {
+    const blocked = entry('p1', 1, { triggered: false, permissionDenials: ['Skill'] })
+    const s = scoreTrigger([blocked], cases)
+    expect(s.test.positive.total).toBe(0)
+    expect(s.test.undecided).toEqual(['p1'])
+    expect(collectFailures([blocked], cases).some(f => f.kind === '미발동')).toBe(false)
+  })
+
+  it('leaves the trigger axis alone when an unrelated tool was denied', () => {
+    const s = scoreTrigger([entry('p1', 1, { triggered: true, permissionDenials: ['Write'] })], cases)
+    expect(s.test.positive).toEqual({ hit: 1, total: 1 })
+  })
+
+  // runs/ 는 gitignore 대상이라 이 필드가 없는 옛 index.json 이 남아 있을 수 있다.
+  it('reads an old index entry that predates the field without crashing', () => {
+    const legacy = forcedRun()
+    delete (legacy.parsed as Partial<IndexEntry['parsed']>).permissionDenials
+    expect(forcedUsable(legacy).usable).toBe(true)
+    expect(() => scoreTrigger([legacy], cases)).not.toThrow()
   })
 })

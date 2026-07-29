@@ -13,7 +13,7 @@ const meta: RunMeta = {
   runId: '2026-07-23T14-02', skillId: 'demo:write', skillDir: '/tmp/plugins/demo/skills/write', model: 'claude-opus-4-8',
   judgeModel: null, loadedSkills: new Array(77).fill('s'), repoSha: 'abc1234',
   casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false,
-  runtime: 'claude'
+  runtime: 'claude', sideEffectsAllowed: false
 }
 
 const pairwise: PairwiseScore = { win: 5, loss: 0, tie: 1, discarded: 0, rate: 1 }
@@ -566,5 +566,24 @@ describe('formatDiff · 케이스 파일이 바뀐 비교', () => {
   it('says nothing about case drift for runs recorded before the fingerprint format', () => {
     const out = formatDiff(run('a', 'deadbeef1234'), run('b', 'cafebabe5678'))
     expect(out).not.toContain('케이스 파일이 다릅니다')
+  })
+})
+
+// 평가 실행은 무인으로 수십 번 반복된다. MCP·외부 작용 도구를 열어둔 채 잰 실행은
+// 점수를 읽기 전에 그 사실을 알아야 한다 — 실측에서 회사 Slack MCP 가 호출된 적이 있다.
+describe('formatReport · 부수효과 도구 경고', () => {
+  it('warns when the run was allowed to reach outside itself', () => {
+    const out = formatReport({ meta: { ...meta, sideEffectsAllowed: true }, score, failures: [] })
+    expect(out).toContain('부수효과 도구 허용')
+  })
+
+  it('stays silent for a guarded run — that is the default, not news', () => {
+    const out = formatReport({ meta: { ...meta, sideEffectsAllowed: false }, score, failures: [] })
+    expect(out).not.toContain('부수효과 도구')
+  })
+
+  it('stays silent for a run recorded before the field existed', () => {
+    const out = formatReport({ meta, score, failures: [] })
+    expect(out).not.toContain('부수효과 도구')
   })
 })

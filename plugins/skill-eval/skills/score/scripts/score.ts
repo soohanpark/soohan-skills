@@ -40,7 +40,13 @@ const triggerRunsFor = (index: IndexEntry[], caseId: string) =>
 
 // Task 5 리뷰 이월: scoreTrigger와 collectFailures가 "ok 필터 → 2:1 다수결" 계산을
 // 각자 베껴 썼다 — 텍스트가 같아서 우연히 일치했을 뿐이라 규칙이 바뀌면 조용히 어긋날 수 있었다.
-const okRuns = (runs: IndexEntry[]): IndexEntry[] => runs.filter(r => r.parsed.status === 'ok')
+// 이 필드가 생기기 전 index.json 이 runs/ 에 남아 있을 수 있다 — 없으면 빈 목록으로 읽는다.
+const denialsOf = (run: IndexEntry): string[] => run.parsed.permissionDenials ?? []
+
+// 권한 거부로 Skill 호출 자체가 막힌 실행은 "발동 안 함" 이 아니라 판정 불가다. 미발동으로
+// 세면 리포트가 description 을 고치라고 안내하고, 멀쩡한 description 을 고치게 된다.
+const okRuns = (runs: IndexEntry[]): IndexEntry[] =>
+  runs.filter(r => r.parsed.status === 'ok' && !denialsOf(r).includes('Skill'))
 const firedCount = (ok: IndexEntry[]): number => ok.filter(r => r.parsed.triggered).length
 const firedMajority = (fired: number, ok: IndexEntry[]): boolean => fired * 2 > ok.length
 
@@ -137,6 +143,16 @@ export const forcedUsable = (run: IndexEntry): { usable: true } | { usable: fals
       usable: false,
       kind: run.parsed.status === 'timeout' ? 'timeout' : 'error',
       detail: `forced: ${run.parsed.terminalReason}`
+    }
+  }
+  // 권한 거부는 실행을 멈추지 않는다 — 도구를 못 쓴 채 "권한을 주세요" 라고 답하고 정상
+  // 종료한다. 그 답에 규칙을 매기면 측정 조건의 문제가 스킬의 품질 실패로 계상된다.
+  // triggered 검사보다 먼저 본다: Skill 호출이 거부됐을 때 "스킬 id 를 확인하세요" 는 오진이다.
+  const denials = denialsOf(run)
+  if (denials.length > 0) {
+    return {
+      usable: false, kind: 'error',
+      detail: `forced: 권한 거부로 도구를 못 썼습니다 (${[...new Set(denials)].join(', ')})`
     }
   }
   if (run.parsed.truncated) {

@@ -6,7 +6,7 @@ import type { ParsedRun } from '../parse.js'
 import { parseClaudeStream, parseCodexStream } from '../parse.js'
 import { casesFile, evalsRoot, resolveSkill, runDirName, skillMdExists } from '../paths.js'
 import { planRuns, recordAll, type PlanItem, type RuntimeName } from '../record.js'
-import { buildArgs, execClaude, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
+import { buildArgs, execClaude, sideEffectsAllowed, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
 import { buildCodexArgs, execCodex } from '../runtimes/codex.js'
 
 // 실행 결과를 사람이 읽을 한 덩어리로 만든다 (순수 — 테스트 대상)
@@ -177,7 +177,8 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
     buildArgsFn: runtime.buildArgs,
     parse: runtime.parse,
     repoSha: currentSha(repoRoot),
-    runtime: runtime.name
+    runtime: runtime.name,
+    sideEffectsAllowed: sideEffectsAllowed()
   })
   console.log(`런타임: ${runtime.name}`)
   console.log(formatRecordSummary(res, runId))

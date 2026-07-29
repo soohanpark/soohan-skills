@@ -203,6 +203,11 @@ export const formatReport = (args: {
     lines.push('⚠ 케이스 파일이 기록 시점과 다릅니다 — 아래 점수는 지금의 cases.jsonl 로 옛 실행을 다시 채점한 결과입니다.')
   }
 
+  if (meta.sideEffectsAllowed) {
+    lines.push('')
+    lines.push('⚠ 부수효과 도구 허용 — MCP 서버와 외부 작용 도구를 켠 채 측정했습니다. 이 실행은 외부 시스템에 도달했을 수 있습니다.')
+  }
+
   if (meta.degradedBaseline && hasBaselineRuns) {
     lines.push('')
     lines.push('⚠ baseline 저하 — Read/Grep/Glob를 전면 차단해 실행했습니다. 파일을 읽는 스킬이면 품질 델타가 과대평가됩니다.')

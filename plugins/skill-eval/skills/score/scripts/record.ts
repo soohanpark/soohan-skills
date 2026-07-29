@@ -27,6 +27,9 @@ export interface RunMeta {
   startedAt: string
   degradedBaseline: boolean
   runtime: RuntimeName
+  // 이 실행이 MCP·외부 작용 도구를 열어둔 채 돌았는가. 측정 조건이 파일에 남아야
+  // 나중에 리포트를 읽는 사람이 그 점수의 도달 범위를 알 수 있다.
+  sideEffectsAllowed: boolean
 }
 
 export interface IndexEntry {
@@ -73,6 +76,7 @@ const errorRun = (reason: string): ParsedRun => ({
   terminalReason: reason,
   tokens: 0,
   truncated: false,
+  permissionDenials: [],
   costUsd: 0,
   model: '',
   loadedSkills: []
@@ -97,6 +101,7 @@ export const recordAll = async (args: {
   repoSha?: string
   runtime?: RuntimeName
   casesHash?: string
+  sideEffectsAllowed?: boolean
   sleep?: (ms: number) => Promise<void>
   buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
   parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
@@ -138,7 +143,8 @@ export const recordAll = async (args: {
         createHash('sha256').update(plan.map(p => p.caseId + p.prompt).join('\n')).digest('hex').slice(0, 12),
       startedAt,
       degradedBaseline: args.degradedBaseline ?? true,
-      runtime: args.runtime ?? 'claude'
+      runtime: args.runtime ?? 'claude',
+      sideEffectsAllowed: args.sideEffectsAllowed ?? false
     }
     writeFileSync(join(outDir, 'index.json'), JSON.stringify(index, null, 2))
     writeFileSync(join(outDir, 'meta.json'), JSON.stringify(meta, null, 2))

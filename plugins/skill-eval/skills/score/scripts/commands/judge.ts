@@ -68,6 +68,11 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
     // 스킬 편에 세우면 페어와이즈가 스킬이 아니라 모델을 재게 된다.
     const usable = forcedUsable(forced)
     if (!usable.usable) { skip(c, usable.detail); continue }
+    const baselineDenials = without.parsed.permissionDenials ?? []
+    if (baselineDenials.length > 0) {
+      skip(c, `baseline 이 권한 거부로 도구를 못 썼습니다 (${[...new Set(baselineDenials)].join(', ')})`)
+      continue
+    }
     if (without.parsed.truncated) { skip(c, 'baseline 이 턴 한도에 걸려 잘렸습니다'); continue }
     if (without.parsed.skillReadFallback) { skip(c, 'baseline 이 SKILL.md 를 직접 읽었습니다'); continue }
 

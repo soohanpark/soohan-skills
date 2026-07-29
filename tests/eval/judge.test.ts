@@ -229,3 +229,30 @@ describe('readJudgeCheck', () => {
     expect(readJudgeCheck({})).toBe('unchecked')
   })
 })
+
+// 심판 프롬프트에는 녹화된 남의 출력이 그대로 들어간다 — 이 하네스에서 프롬프트 인젝션
+// 표면이 가장 넓은 지점이다. 도구 목록만 막아서는 MCP 116개가 그대로 열려 있었다.
+describe('buildJudgeArgs · 인젝션 표면', () => {
+  it('cuts MCP servers off', () => {
+    expect(buildJudgeArgs('x')).toContain('--strict-mcp-config')
+  })
+
+  it('denies tools whose effects outlive the judgement', () => {
+    const args = buildJudgeArgs('x')
+    for (const tool of ['CronCreate', 'RemoteTrigger', 'PushNotification', 'SendMessage', 'Task', 'Workflow']) {
+      expect(args, tool).toContain(tool)
+    }
+  })
+
+  it('keeps the original lock — one turn and no file or network access', () => {
+    const args = buildJudgeArgs('x')
+    expect(args).toEqual(expect.arrayContaining(['--max-turns', '1']))
+    for (const tool of ['Bash', 'Read', 'Write', 'Edit', 'WebFetch', 'WebSearch', 'Skill']) {
+      expect(args, tool).toContain(tool)
+    }
+  })
+
+  it('passes exactly one --disallowedTools', () => {
+    expect(buildJudgeArgs('x').filter(a => a === '--disallowedTools')).toHaveLength(1)
+  })
+})

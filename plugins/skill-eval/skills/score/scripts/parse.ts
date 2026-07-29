@@ -3,6 +3,10 @@ export type RunStatus = 'ok' | 'error' | 'timeout'
 export interface ParsedRun {
   triggered: boolean
   truncated: boolean
+  // 헤드리스 실행은 권한이 필요한 도구를 사람에게 묻지 않고 즉시 거부한다 — 멈추지는 않지만
+  // 스킬이 제 일을 못 한 채 답을 낸다. 종료 상태에는 안 나타나므로 여기서 꺼내지 않으면
+  // 그 답이 정상 측정으로 계상된다 (실측 2026-07-29).
+  permissionDenials: string[]
   skillReadFallback: boolean
   finalText: string
   status: RunStatus
@@ -140,7 +144,7 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
 
   if (!result) {
     return {
-      triggered, truncated: false, skillReadFallback, finalText,
+      triggered, truncated: false, permissionDenials: [], skillReadFallback, finalText,
       status: 'error', terminalReason: 'no_result_event',
       tokens: 0, costUsd: 0, model, loadedSkills
     }
@@ -155,9 +159,14 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
     (usage.input_tokens ?? 0) + (usage.output_tokens ?? 0) +
     (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0)
 
+  const permissionDenials = Array.isArray(result.permission_denials)
+    ? result.permission_denials.map((d: any) => String(d?.tool_name ?? 'unknown'))
+    : []
+
   return {
     triggered,
     truncated: terminalReason === TRUNCATED_REASON,
+    permissionDenials,
     skillReadFallback,
     finalText: typeof result.result === 'string' && result.result ? result.result : finalText,
     status: classifyStatus(result, terminalReason),
@@ -207,7 +216,7 @@ export const parseCodexStream = (raw: string, opts: ParseOptions): ParsedRun => 
 
   if (!done) {
     return {
-      triggered, truncated: false, skillReadFallback: false, finalText,
+      triggered, truncated: false, permissionDenials: [], skillReadFallback: false, finalText,
       status: 'error', terminalReason: 'no_completion_event',
       tokens: 0, costUsd: 0, model: '', loadedSkills: []
     }
@@ -217,6 +226,7 @@ export const parseCodexStream = (raw: string, opts: ParseOptions): ParsedRun => 
   return {
     triggered,
     truncated: false,           // Codex 이벤트에 턴 절단 신호가 없다 (실측)
+    permissionDenials: [],      // Codex 이벤트에 권한 거부 필드가 없다 (실측)
     skillReadFallback: false,   // Codex는 SKILL.md를 읽는 것 자체가 유일한 발동 경로라 별도 우회 신호가 없다
     finalText,
     status: 'ok',

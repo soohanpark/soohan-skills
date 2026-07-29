@@ -223,3 +223,38 @@ describe('skillReadPattern · 짧은 내부 스킬명', () => {
     expect(parseClaudeStream(raw('cd /repo/plugins/demo/skills/run && cat SKILL.md'), o).skillReadFallback).toBe(true)
   })
 })
+
+// 헤드리스 실행은 권한이 필요한 도구를 사람에게 묻지 않고 즉시 거부한다 (실측 2026-07-29:
+// Write 호출이 13초 만에 거부되고 실행은 is_error:false / terminal_reason completed 로 끝났다).
+// 거부는 result 이벤트에만 남고 종료 상태에는 안 나타나므로, 아무도 안 읽으면 "스킬이 제 일을
+// 못 한 실행" 이 정상 측정으로 계상된다 — finalText 가 "권한을 주세요" 인 채로.
+describe('parseClaudeStream · 권한 거부', () => {
+  const withDenials = (denials: unknown) =>
+    '{"type":"system","subtype":"init","model":"m","skills":[]}\n' +
+    '{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed",' +
+    `"permission_denials":${JSON.stringify(denials)},` +
+    '"result":"I need your permission to write the file.","usage":{},"total_cost_usd":0.01}\n'
+
+  it('records which tools were denied', () => {
+    const r = parseClaudeStream(withDenials([
+      { tool_name: 'Write', tool_use_id: 't1', tool_input: {} },
+      { tool_name: 'Bash', tool_use_id: 't2', tool_input: {} }
+    ]), opts)
+    expect(r.permissionDenials).toEqual(['Write', 'Bash'])
+  })
+
+  it('still reports the run as ok — the CLI itself does not treat a denial as an error', () => {
+    const r = parseClaudeStream(withDenials([{ tool_name: 'Write' }]), opts)
+    expect(r.status).toBe('ok')
+    expect(r.terminalReason).toBe('completed')
+  })
+
+  it('is empty when nothing was denied', () => {
+    expect(parseClaudeStream(fixture('claude-triggered'), opts).permissionDenials).toEqual([])
+  })
+
+  it('survives a malformed denials field', () => {
+    expect(parseClaudeStream(withDenials('nope'), opts).permissionDenials).toEqual([])
+    expect(parseClaudeStream(withDenials([{}]), opts).permissionDenials).toEqual(['unknown'])
+  })
+})

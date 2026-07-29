@@ -222,7 +222,7 @@ describe('recordAll runtime injection (defaults to claude)', () => {
   it('uses an injected parse function instead of the claude default when supplied', async () => {
     const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
     const fakeParse = (): ParsedRun => ({
-      triggered: true, truncated: false, skillReadFallback: false, finalText: 'custom',
+      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'custom',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
     })
     await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
@@ -235,7 +235,7 @@ describe('recordAll runtime injection (defaults to claude)', () => {
     mkdirSync(out, { recursive: true })
     writeFileSync(join(out, 'with--a--r1.jsonl'), okStream)
     const fakeParse = (): ParsedRun => ({
-      triggered: true, truncated: false, skillReadFallback: false, finalText: 'from-skip-path',
+      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'from-skip-path',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
     })
     const res = await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
@@ -434,5 +434,23 @@ describe('중단·잘린 스트림 내성', () => {
     const res = await recordAll({ plan, skill, outDir: out, exec: execOk })
     expect(res.skipped).toBe(0)
     expect(res.errorRate).toBe(0)
+  })
+})
+
+describe('meta.sideEffectsAllowed', () => {
+  it('records that the run was guarded by default', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.sideEffectsAllowed).toBe(false)
+  })
+
+  // 측정 조건이 파일에 안 남으면, 나중에 리포트를 읽는 사람이 이 실행이 회사 시스템에
+  // 도달할 수 있었는지 알 방법이 없다.
+  it('records an explicit opt-in so the report can warn about it', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, sideEffectsAllowed: true })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.sideEffectsAllowed).toBe(true)
   })
 })
