@@ -9,6 +9,17 @@ describe('parseRecordFlags', () => {
     expect(parseRecordFlags(['--runtime=codex', '--resume=r1']).resume).toBe('r1')
   })
 
+  // 문제가 된 한두 케이스만 다시 재는 용도 — 재실행이므로 기존 원본을 덮는다 (recordAll only 참고).
+  it('parses a comma-separated --case filter', () => {
+    expect(parseRecordFlags(['--case=p-004,p-008']).cases).toEqual(['p-004', 'p-008'])
+    expect(parseRecordFlags(['--case=p-004']).cases).toEqual(['p-004'])
+    expect(parseRecordFlags([]).cases).toBeUndefined()
+  })
+
+  it('rejects an empty --case value — a typo must not silently run nothing', () => {
+    expect(() => parseRecordFlags(['--case='])).toThrow(/케이스/)
+  })
+
   it('accepts a bare runtime name', () => {
     expect(parseRecordFlags(['codex'])).toEqual({ runtime: 'codex', resume: undefined })
   })

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseClaudeStream } from '../../plugins/skill-eval/skills/score/scripts/parse'
+import { parseClaudeStream, parseCodexStream } from '../../plugins/skill-eval/skills/score/scripts/parse'
 
 const fixture = (name: string) =>
   readFileSync(join(__dirname, '..', 'fixtures', `${name}.jsonl`), 'utf8')
@@ -143,6 +143,57 @@ describe('parseClaudeStream', () => {
 
 // baseline(without)은 Skill·Read 를 차단당하면 셸로 우회한다. 실측에서 `cat …/SKILL.md` 로 읽고도
 // 오염 플래그가 false 로 남아 대조군이 오염된 채 품질 델타가 계산됐다 (2026-07-28).
+// 트리거 축이 정찰 1턴을 허용하면서(--max-turns 2), "즉시 발동"과 "정찰 후 발동"을 구분할
+// 신호가 필요하다 — 실측(2026-07-30, msuarcade:init)에서 발동 여부를 가른 변수는 프롬프트의
+// 의미가 아니라 모델이 정찰을 했는지였다. 첫 대상 Skill 호출 이전의 tool_use 수를 센다.
+describe('parseClaudeStream · 정찰 지표 (reconToolCalls)', () => {
+  const init = '{"type":"system","subtype":"init","model":"m","skills":[]}'
+  const done = '{"type":"result","subtype":"success","is_error":false,"terminal_reason":"completed","result":"ok","usage":{}}'
+  const ev = (blocks: unknown[]) => JSON.stringify({ type: 'assistant', message: { content: blocks } })
+  const use = (name: string, input: object) => ({ type: 'tool_use', name, input })
+  const stream = (...lines: string[]) => [init, ...lines, done].join('\n')
+
+  it('reports 0 recon calls when the target skill fires first', () => {
+    const r = parseClaudeStream(stream(ev([use('Skill', { skill: 'demo:write' })])), opts)
+    expect(r.triggered).toBe(true)
+    expect(r.reconToolCalls).toBe(0)
+  })
+
+  it('counts tool calls made before the first target-skill call', () => {
+    const raw = stream(
+      ev([use('Bash', { command: 'ls -la' })]),
+      ev([use('Skill', { skill: 'demo:write' })])
+    )
+    expect(parseClaudeStream(raw, opts).reconToolCalls).toBe(1)
+  })
+
+  // 형제 스킬을 먼저 골랐다가 대상으로 온 사례(실측: writing-skills → brainstorming)도 정찰이다.
+  it('counts a sibling-skill call as recon too', () => {
+    const raw = stream(ev([use('Skill', { skill: 'demo:other' }), use('Skill', { skill: 'demo:write' })]))
+    expect(parseClaudeStream(raw, opts).reconToolCalls).toBe(1)
+  })
+
+  it('reports null when the skill never fires', () => {
+    const r = parseClaudeStream(stream(ev([use('Bash', { command: 'ls' })])), opts)
+    expect(r.triggered).toBe(false)
+    expect(r.reconToolCalls).toBeNull()
+  })
+
+  it('keeps the count of the first firing when the skill is called again later', () => {
+    const raw = stream(
+      ev([use('Skill', { skill: 'demo:write' })]),
+      ev([use('Bash', { command: 'ls' }), use('Skill', { skill: 'demo:write' })])
+    )
+    expect(parseClaudeStream(raw, opts).reconToolCalls).toBe(0)
+  })
+
+  // codex 스트림에는 대응하는 신호 계약이 없다 — 없는 것을 있는 것처럼 세지 않는다.
+  it('stays null on the codex parser', () => {
+    const r = parseCodexStream('{"type":"turn.completed","usage":{}}', opts)
+    expect(r.reconToolCalls).toBeNull()
+  })
+})
+
 describe('parseClaudeStream · baseline 오염 탐지', () => {
   const withEvents = (...events: string[]) =>
     '{"type":"system","subtype":"init","model":"m","skills":[]}\n' +

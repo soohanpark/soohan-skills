@@ -66,10 +66,36 @@ export const extractPrompts = (jsonl: string, sessionFile: string): MinedPrompt[
 
 const QUOTED = /"([^"]{2,60})"/g
 
+// 폴백 추출에서 버리는 기능어 — description 상용구("Use when the user asks…")가 키워드로
+// 새면 모든 프롬프트가 near-miss 후보가 된다.
+const FALLBACK_STOPWORDS = new Set([
+  'use', 'when', 'this', 'that', 'with', 'from', 'before', 'after', 'into', 'only',
+  'must', 'should', 'the', 'and', 'for', 'are', 'was', 'has', 'have', 'not', 'any',
+  'user', 'asks', 'wants', 'skill', 'skills'
+])
+
+// 인용부호 문구가 하나도 없는 description 의 폴백 (실측 2026-07-30: superpowers:brainstorming 은
+// 인용 예시가 없어 키워드가 공집합 → 세션 1094개에서 near-miss 0건). draft 는 사람이 선별하는
+// 후보 목록이라 정밀도보다 재현율이 우선이다 — 잡음은 선별 단계에서 버려진다. 한국어 어절은
+// 조사가 붙은 채 잘리므로 3글자 이상 어절은 끝 한 글자를 뗀 형태도 함께 넣어 매칭 폭을 넓힌다.
+export const fallbackKeywords = (description: string): string[] => {
+  const out = new Set<string>()
+  for (const m of description.matchAll(/[A-Za-z]{4,}/g)) {
+    const word = m[0].toLowerCase()
+    if (!FALLBACK_STOPWORDS.has(word)) out.add(word)
+  }
+  for (const m of description.matchAll(/[가-힣]{2,}/g)) {
+    out.add(m[0])
+    if (m[0].length >= 3) out.add(m[0].slice(0, -1))
+  }
+  return [...out]
+}
+
 export const keywordsFromDescription = (description: string): string[] => {
-  const out: string[] = []
-  for (const m of description.matchAll(QUOTED)) out.push(m[1])
-  return out
+  const quoted: string[] = []
+  for (const m of description.matchAll(QUOTED)) quoted.push(m[1])
+  // 저자가 명시한 트리거 문구가 폴백 잡음보다 강한 신호다 — 있으면 그것만 쓴다.
+  return quoted.length > 0 ? quoted : fallbackKeywords(description)
 }
 
 export const classify = (

@@ -2,19 +2,21 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildArgs, buildTextOnlyArgs, execFailureReason, isolationLevel, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
+import { buildArgs, buildForcedPrompt, buildTextOnlyArgs, execFailureReason, isolationLevel, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
 
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
 
 describe('buildArgs', () => {
-  it('builds the with-variant with turn 1 cut and stream-json output', () => {
+  // 실측(2026-07-30, msuarcade:init): 1턴 제한에서 54런 중 47런이 첫 턴을 정찰(ls)에 쓰고
+  // 잘려 미발동으로 집계됐다 — 6건은 "그 스킬을 쓰겠다"고 말한 채 잘렸다. 정찰 한 턴을 허용한다.
+  it('builds the with-variant allowing one reconnaissance turn before the cut', () => {
     const args = buildArgs('with', skill, 'MR 써줘')
     expect(args).toContain('-p')
     expect(args).toContain('MR 써줘')
     expect(args).toContain('--output-format')
     expect(args).toContain('stream-json')
     expect(args).toContain('--verbose')
-    expect(args).toEqual(expect.arrayContaining(['--max-turns', '1']))
+    expect(args).toEqual(expect.arrayContaining(['--max-turns', '2']))
   })
 
   it('does not restrict the skill\'s own working tools in the with-variant', () => {
@@ -165,11 +167,41 @@ describe('buildArgs · 부수효과 도구 차단', () => {
   })
 
   // 스킬이 일할 능력까지 뺏으면 측정 자체가 왜곡된다 — 도구를 못 써서 진 것을 품질로 읽게 된다.
+  // 허용 목록에 같은 이름이 나올 수 있으므로 차단 목록 구간만 본다.
+  const deniedOf = (args: string[]): string[] => {
+    const rest = args.slice(args.indexOf('--disallowedTools') + 1)
+    const end = rest.findIndex(a => a.startsWith('--'))
+    return end === -1 ? rest : rest.slice(0, end)
+  }
+
   it('leaves the skill able to do its work', () => {
-    const args = buildArgs('forced', skill, 'x')
+    const denied = deniedOf(buildArgs('forced', skill, 'x'))
     for (const tool of ['Bash', 'Read', 'Write', 'Edit', 'Skill', 'WebSearch']) {
-      expect(args, tool).not.toContain(tool)
+      expect(denied, tool).not.toContain(tool)
     }
+  })
+
+  // 헤드리스 기본 권한은 git 등 임의 Bash 와 파일 쓰기를 승인 대기로 즉시 거부한다 — 실측
+  // (2026-07-31 스모크): forced 가 git --version 거부에 막혀 멈췄다. 격리 전에는 계정의
+  // Bash(*) 허용이 이걸 가리고 있었다. 품질 변형에만 작업 도구를 명시 허용한다 — 부작용
+  // 도구 차단과 MCP 차단은 거부가 허용에 우선하므로 그대로다.
+  it('grants working tools to the quality variants — headless defaults deny git and writes', () => {
+    for (const v of ['forced', 'without'] as const) {
+      const args = buildArgs(v, skill, 'x')
+      expect(args, v).toContain('--allowedTools')
+      expect(args, v).toContain('Bash(*)')
+      expect(args, v).toContain('Write')
+    }
+  })
+
+  it('keeps the trigger variant on default permissions — extra grants could shift trigger behavior', () => {
+    expect(buildArgs('with', skill, 'x')).not.toContain('--allowedTools')
+  })
+
+  it('still denies side-effect tools alongside the quality grants', () => {
+    const denied = deniedOf(buildArgs('forced', skill, 'x'))
+    expect(denied).toContain('CronCreate')
+    expect(denied).toContain('Workflow')
   })
 
   // --disallowedTools 는 가변인자다. 두 번 넘기면 뒤엣것이 앞엣것을 덮거나 파싱이 어긋난다.
@@ -222,19 +254,43 @@ describe('격리 · isolationLevel/buildArgs', () => {
     else process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = saved
   })
 
-  it('grades a plugin skill as full, a rootless skill as cwd-only, side-effects mode as off', () => {
+  // 부수효과 모드에서 cwd 격리까지 꺼지면 런들이 폴더를 공유해 앞 런의 산출물이 뒷 런의
+  // 전제를 깬다 (실측 2026-07-30, init 의 1단계 가드 충돌). 도구 개방과 cwd 격리는 별개다.
+  it('grades a plugin skill as full, a rootless skill as cwd-only, side-effects mode as cwd', () => {
     expect(isolationLevel(rooted)).toBe('full')
     expect(isolationLevel(skill)).toBe('cwd')
     process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = '1'
-    expect(isolationLevel(rooted)).toBe('off')
+    expect(isolationLevel(rooted)).toBe('cwd')
   })
 
-  it('loads only the measured plugin and drops the user scope on every variant', () => {
-    for (const v of ['with', 'forced', 'without'] as const) {
+  it('loads only the measured plugin and drops the user scope on with and forced', () => {
+    for (const v of ['with', 'forced'] as const) {
       const args = buildArgs(v, rooted, 'x')
       expect(args, v).toEqual(expect.arrayContaining(['--setting-sources', 'project']))
       expect(args, v).toEqual(expect.arrayContaining(['--plugin-dir', '/tmp/plugins/demo']))
     }
+  })
+
+  // 대조군은 스킬의 어떤 흔적도 몰라야 한다. --plugin-dir 는 훅·스킬 목록까지 싣는다 —
+  // 실측(2026-07-30, superpowers)에서 baseline 이 훅으로 브레인스토밍 교리를 주입받은 채
+  // 답해 페어와이즈 델타가 구조적으로 0에 눌렸다.
+  it('keeps the baseline plugin-free — user scope dropped but no plugin loaded', () => {
+    const args = buildArgs('without', rooted, 'x')
+    expect(args).toEqual(expect.arrayContaining(['--setting-sources', 'project']))
+    expect(args).not.toContain('--plugin-dir')
+    expect(args).not.toContain('--add-dir')
+  })
+
+  // 실험군은 스킬이 실제로 일해야 한다 — 참조 파일·애셋이 플러그인 디렉터리에 있다.
+  // 실측(2026-07-30): --add-dir 는 Read·Bash 접근을 함께 열고 그 디렉터리의 CLAUDE.md 는
+  // 주입하지 않는다. 설정 심기(additionalDirectories)는 미신뢰 워크스페이스라 무시된다.
+  it('opens the plugin directory to the forced variant only', () => {
+    expect(buildArgs('forced', rooted, 'x')).toEqual(expect.arrayContaining(['--add-dir', '/tmp/plugins/demo']))
+    expect(buildArgs('with', rooted, 'x')).not.toContain('--add-dir')
+  })
+
+  it('opens the skill directory itself for a forced personal skill', () => {
+    expect(buildArgs('forced', skill, 'x')).toEqual(expect.arrayContaining(['--add-dir', skill.dir]))
   })
 
   // 개인 스킬은 유저 스코프에 산다 — 스코프를 제외하면 측정 대상 자체가 안 실린다.
@@ -244,16 +300,49 @@ describe('격리 · isolationLevel/buildArgs', () => {
     expect(args).not.toContain('--plugin-dir')
   })
 
-  it('drops isolation entirely in side-effects mode — that mode measures the real environment', () => {
+  it('drops isolation args entirely in side-effects mode — that mode measures the real environment', () => {
     process.env.SKILL_EVAL_ALLOW_SIDE_EFFECTS = '1'
-    const args = buildArgs('with', rooted, 'x')
-    expect(args).not.toContain('--setting-sources')
-    expect(args).not.toContain('--plugin-dir')
+    for (const v of ['with', 'forced', 'without'] as const) {
+      const args = buildArgs(v, rooted, 'x', { skillMd: '# 스킬' })
+      expect(args, v).not.toContain('--setting-sources')
+      expect(args, v).not.toContain('--plugin-dir')
+      expect(args, v).not.toContain('--add-dir')
+    }
   })
 
   // 심판·증강 호출의 컨텍스트에 유저 CLAUDE.md·rules 가 주입되면 판정이 계정 지시문에 흔들린다.
   it('excludes the user scope from text-only calls too', () => {
     expect(buildTextOnlyArgs('x')).toEqual(expect.arrayContaining(['--setting-sources', 'project']))
+  })
+})
+
+// 실측(2026-07-30, CLI 2.1.220): -p 모드의 슬래시 커맨드는 "로드했다"는 메시지만 남기고
+// SKILL.md 본문을 컨텍스트에 넣지 않는다. 격리 전에는 계정의 Bash(*) 허용이 모델의 자가-읽기
+// 폴백을 몰래 지탱해 티가 안 났고, 격리가 그 목발을 치우자 실험군이 전멸했다. 본문을 하네스가
+// 직접 프롬프트에 넣으면 "본문이 컨텍스트에 있다"가 구성상 보장되고, Skill tool_use 블록
+// 유무로 발동을 재는 비결정적 검사(같은 명령이 블록 없이 체크리스트만 따르는 사례 실측)도
+// 통째로 불필요해진다.
+describe('forced 본문 주입', () => {
+  const md = '---\nname: write\n---\n\n# 절차\n1단계: 대상 폴더를 확인한다.'
+
+  it('embeds the skill body and the request in the forced prompt instead of a slash command', () => {
+    const args = buildArgs('forced', skill, 'MR 써줘', { skillMd: md })
+    const p = args[args.indexOf('-p') + 1]
+    expect(p).toContain('1단계: 대상 폴더를 확인한다.')
+    expect(p).toContain('MR 써줘')
+    expect(p).toContain(skill.dir)
+    expect(p.startsWith('/')).toBe(false)
+  })
+
+  it('names the skill id so the transcript stays attributable', () => {
+    const p = buildForcedPrompt(skill, md, 'x')
+    expect(p).toContain('demo:write')
+  })
+
+  it('falls back to the slash command when no body is supplied', () => {
+    const args = buildArgs('forced', skill, 'MR 써줘')
+    const p = args[args.indexOf('-p') + 1]
+    expect(p).toBe('/demo:write MR 써줘')
   })
 })
 

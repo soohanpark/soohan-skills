@@ -2,7 +2,26 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { installedSkillDir, resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+import { installedSkillDir, pluginShipsHooks, resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+
+// 훅을 가진 플러그인의 트리거 축은 description 단독이 아니라 "플러그인 전체(훅 포함) 발동률"
+// 이다 — 실측(2026-07-30, superpowers)에서 자체 SessionStart 훅이 발동률에 관여했다. 리포트가
+// 그 사실을 라벨하려면 기록 시점에 훅 유무를 알아야 한다.
+describe('pluginShipsHooks', () => {
+  let root: string
+  beforeEach(() => { root = mkdtempSync(join(tmpdir(), 'eval-hooks-')) })
+  afterEach(() => { rmSync(root, { recursive: true, force: true }) })
+
+  it('detects a plugin that ships hooks/hooks.json', () => {
+    mkdirSync(join(root, 'hooks'), { recursive: true })
+    writeFileSync(join(root, 'hooks', 'hooks.json'), '{}')
+    expect(pluginShipsHooks(root)).toBe(true)
+  })
+
+  it('returns false for a plugin without hooks', () => {
+    expect(pluginShipsHooks(root)).toBe(false)
+  })
+})
 
 // 격리 레코딩(--plugin-dir)은 SKILL.md 디렉터리가 아니라 .claude-plugin/plugin.json 이 있는
 // 플러그인 루트를 CLI 에 넘겨야 한다 — 그래야 대상 플러그인만 명시 로드된다.

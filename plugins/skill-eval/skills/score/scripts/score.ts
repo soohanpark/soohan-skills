@@ -137,7 +137,10 @@ export interface RuleScore { train: RuleTally; test: RuleTally; failures: Failur
 //    틀리면 존재하지 않는 커맨드가 프롬프트에 얹힌 채 모델이 그냥 답해 버린다. 그 답에
 //    must/must_not 을 매기면 "스킬 없이 낸 답"을 스킬 점수로 세게 된다. 아무도 이걸 확인하지
 //    않아서 parsed.triggered 는 트리거 축에서만 소비되고 있었다.
-export const forcedUsable = (run: IndexEntry): { usable: true } | { usable: false; kind: Failure['kind']; detail: string } => {
+export const forcedUsable = (
+  run: IndexEntry,
+  opts: { bodyInjected?: boolean } = {}
+): { usable: true } | { usable: false; kind: Failure['kind']; detail: string } => {
   if (run.parsed.status !== 'ok') {
     return {
       usable: false,
@@ -158,13 +161,19 @@ export const forcedUsable = (run: IndexEntry): { usable: true } | { usable: fals
   if (run.parsed.truncated) {
     return { usable: false, kind: 'error', detail: 'forced: 턴 한도에 걸려 답변이 잘렸습니다 — 품질 판정에서 제외' }
   }
-  if (!run.parsed.triggered) {
+  // 본문 주입 런은 "스킬이 붙었는가"가 구성상 보장된다 — Skill tool_use 블록 유무는 모델
+  // 재량이라(같은 강제 명령이 블록 없이 체크리스트만 따른 실측 2026-07-30) 검사하면 오진이 된다.
+  if (!opts.bodyInjected && !run.parsed.triggered) {
     return { usable: false, kind: 'error', detail: 'forced: 스킬이 발동하지 않았습니다 — 스킬 id 가 맞는지 확인하세요' }
   }
   return { usable: true }
 }
 
-export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore => {
+export const scoreRules = (
+  index: IndexEntry[],
+  cases: EvalCase[],
+  opts: { forcedBodyInjected?: boolean } = {}
+): RuleScore => {
   const train: RuleTally = { pass: 0, total: 0, undecided: [] }
   const test: RuleTally = { pass: 0, total: 0, undecided: [] }
   const failures: Failure[] = []
@@ -177,7 +186,7 @@ export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore =>
       bucket.undecided.push(c.id)
       continue
     }
-    const usable = forcedUsable(run)
+    const usable = forcedUsable(run, { bodyInjected: opts.forcedBodyInjected })
     if (!usable.usable) {
       // 판정 불가 — 분모에서 빼되 실패 목록에는 남긴다. 조용히 빠지면 분모 축소가 안 보인다 (리뷰 R6)
       failures.push({ caseId: c.id, kind: usable.kind, detail: usable.detail })
@@ -197,14 +206,17 @@ export const scoreRules = (index: IndexEntry[], cases: EvalCase[]): RuleScore =>
 // forced 가 without 대비 토큰을 얼마나 더/덜 쓰는지 — 품질 델타의 일부로 기록한다 (설계 §7-4).
 // 두 변형 모두 ok 인 케이스만 짝지어 합산한다 — 분모가 어긋나면 케이스 수 차이만으로 델타가
 // 부풀려진다 (리뷰 R5). 짝이 하나도 없으면(without 이 없는 codex 등) forced 합계만 보고한다.
-export const tokenDelta = (index: IndexEntry[]): { forced: number; without: number | null } | null => {
+export const tokenDelta = (
+  index: IndexEntry[],
+  opts: { forcedBodyInjected?: boolean } = {}
+): { forced: number; without: number | null } | null => {
   // forced 는 품질 판정과 같은 기준으로 거른다 — 스킬이 붙지 않은 실행의 토큰을 "스킬 사용량"
   // 으로 세면 델타가 스킬이 아니라 모델을 재게 된다. without 은 스킬이 없는 것이 정상이므로
   // 정상 종료·비절단만 본다 (절단된 쪽의 토큰은 "한도까지 쓴 양"이라 비교할 수 없다).
   const okRunsOf = (variant: 'forced' | 'without') =>
     index.filter(e => e.variant === variant && (
       variant === 'forced'
-        ? forcedUsable(e).usable
+        ? forcedUsable(e, { bodyInjected: opts.forcedBodyInjected }).usable
         : e.parsed.status === 'ok' && !e.parsed.truncated
     ))
 
@@ -219,6 +231,26 @@ export const tokenDelta = (index: IndexEntry[]): { forced: number; without: numb
   return {
     forced: sum(paired),
     without: sum(paired.map(e => withoutByCase.get(e.caseId)!))
+  }
+}
+
+export interface ReconSummary {
+  triggered: number
+  immediate: number
+  afterRecon: number
+}
+
+// 발동 런을 "즉시"와 "정찰 후"로 가른다 — 트리거 축이 정찰 1턴을 허용하므로(--max-turns 2)
+// 이 구분이 없으면 정찰 부류의 회복이 보이지 않는다 (1턴 측정에서는 통째로 미발동이었다,
+// 실측 2026-07-30 47/54). reconToolCalls 가 없는 구 기록은 어느 쪽인지 알 수 없어 두 버킷
+// 어디에도 넣지 않는다 — triggered 와 버킷 합이 다르면 구 기록이 섞였다는 뜻이다.
+export const summarizeRecon = (index: IndexEntry[]): ReconSummary => {
+  const fired = index.filter(e => e.variant === 'with' && e.parsed.triggered)
+  const recon = (e: IndexEntry): unknown => e.parsed.reconToolCalls
+  return {
+    triggered: fired.length,
+    immediate: fired.filter(e => recon(e) === 0).length,
+    afterRecon: fired.filter(e => typeof recon(e) === 'number' && (recon(e) as number) > 0).length
   }
 }
 

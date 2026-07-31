@@ -1,7 +1,7 @@
 import { CASES_HASH_PREFIX } from './cases.js'
 import type { JudgeCheck, PairwiseScore } from './judge.js'
 import type { RunMeta } from './record.js'
-import type { ExecutionSummary, Failure, RuleTally, TriggerScore } from './score.js'
+import type { ExecutionSummary, Failure, ReconSummary, RuleTally, TriggerScore } from './score.js'
 
 const POSITIVE_FLOOR = 0.9
 const NEGATIVE_CEILING = 0.1
@@ -129,8 +129,9 @@ export const formatReport = (args: {
   tokens?: { forced: number; without: number | null }
   execution?: ExecutionSummary
   casesDrifted?: boolean
+  recon?: ReconSummary
 }): string => {
-  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeCheck, judgeCostUsd, tokens, execution } = args
+  const { meta, score, failures, hasBaselineRuns, rules, pairwise, judgeCheck, judgeCostUsd, tokens, execution, recon } = args
   const v = verdict({
     score, rules, pairwise, judgeCheck,
     qualitativeAwaitingJudge: args.qualitativeAwaitingJudge
@@ -160,6 +161,11 @@ export const formatReport = (args: {
   lines.push(`  negative 오발동률   ${score.test.negative.falseHit}/${score.test.negative.total}  ${pct(score.test.negative.falseHit, score.test.negative.total)}     ${score.train.negative.falseHit}/${score.train.negative.total}  ${pct(score.train.negative.falseHit, score.train.negative.total)}`)
   lines.push(`  unstable (2:1)           ${score.test.unstable.length}건        ${score.train.unstable.length}건`)
   lines.push(`  실행 에러                ${score.test.nError}건        ${score.train.nError}건`)
+  // 정찰 후 발동은 1턴 측정에서 통째로 미발동으로 집계되던 부류다 (실측 2026-07-30, 47/54).
+  // 구 기록에는 지표가 없어 두 버킷 합이 발동 수보다 작을 수 있다.
+  if (recon && recon.triggered > 0) {
+    lines.push(`  발동 시점 (전 런)        즉시 ${recon.immediate}런 · 정찰 후 ${recon.afterRecon}런`)
+  }
 
   const showRules = Boolean(rules && rules.total > 0)
   // 폐기된 판정도 "정성 축을 재려다 실패했다"는 신호다. 결정된 쌍이 하나도 없을 때 이 줄까지
@@ -214,13 +220,25 @@ export const formatReport = (args: {
   const isolation = meta.isolation ?? 'off'
   if (isolation === 'full') {
     lines.push('')
-    lines.push('격리 실행 — 빈 전용 cwd에서 유저 스코프를 제외하고 대상 플러그인만 로드했습니다. 트리거 축은 격리(진공) 발동률입니다.')
+    lines.push('격리 실행 — 빈 전용 cwd에서 유저 스코프를 제외하고 대상 플러그인만 로드했습니다. 트리거 축은 격리(진공) 발동률이고, baseline 은 플러그인 없이 돌았습니다.')
   } else if (isolation === 'cwd') {
     lines.push('')
     lines.push('격리 실행(부분) — 빈 전용 cwd를 썼지만 개인 스킬이라 유저 스코프 스킬·지시문과는 경쟁한 발동률입니다.')
   } else if ((meta.runtime ?? 'claude') === 'claude') {
     lines.push('')
     lines.push('⚠ 비격리 실행 — 계정의 전역 스킬·훅·CLAUDE.md 와 경쟁한 트리거 축입니다. 미발동을 description 탓으로 돌리기 전에 격리 기록으로 다시 재보세요.')
+  }
+
+  // 자체 훅이 발동을 밀어붙이는 플러그인(실측 2026-07-30, superpowers)의 트리거 숫자를
+  // description 공로로 읽으면 엉뚱한 곳을 고치게 된다.
+  if ((meta.pluginHasHooks ?? false) && isolation === 'full') {
+    lines.push('')
+    lines.push('대상 플러그인이 훅을 포함합니다 — 트리거 축은 description 단독이 아니라 플러그인 전체(훅 포함)의 발동률입니다.')
+  }
+
+  if (meta.forcedBodyInjected ?? false) {
+    lines.push('')
+    lines.push('forced 는 SKILL.md 본문을 프롬프트로 주입해 실행됐습니다 — 본문 확보가 구성상 보장되어 Skill 호출 여부를 검사하지 않습니다.')
   }
 
   if (meta.degradedBaseline && hasBaselineRuns) {

@@ -13,7 +13,8 @@ const meta: RunMeta = {
   runId: '2026-07-23T14-02', skillId: 'demo:write', skillDir: '/tmp/plugins/demo/skills/write', model: 'claude-opus-4-8',
   judgeModel: null, loadedSkills: new Array(77).fill('s'), repoSha: 'abc1234',
   casesHash: 'abc123', startedAt: '2026-07-23T14:02:00.000Z', degradedBaseline: false,
-  runtime: 'claude', sideEffectsAllowed: false, isolation: 'full'
+  runtime: 'claude', sideEffectsAllowed: false, isolation: 'full', forcedBodyInjected: false,
+  pluginHasHooks: false
 }
 
 const pairwise: PairwiseScore = { win: 5, loss: 0, tie: 1, discarded: 0, rate: 1 }
@@ -611,5 +612,45 @@ describe('formatReport · 격리 표시', () => {
   it('does not nag a codex run about isolation — that runtime cannot isolate', () => {
     const out = formatReport({ meta: { ...meta, runtime: 'codex' as const, isolation: 'off' as const }, score, failures: [] })
     expect(out).not.toContain('비격리')
+  })
+})
+
+// 정찰 1턴 허용(--max-turns 2) 이후의 발동은 "즉시"와 "정찰 후"로 갈라 보여야 한다 —
+// 1턴 측정에서 정찰 부류가 통째로 미발동 집계되던 것(실측 47/54)을 이제는 수치로 드러낸다.
+describe('formatReport · 정찰 지표', () => {
+  it('shows the immediate/after-recon split for triggered runs', () => {
+    const out = formatReport({ meta, score, failures: [], recon: { triggered: 8, immediate: 5, afterRecon: 3 } })
+    expect(out).toContain('정찰')
+    expect(out).toContain('5')
+    expect(out).toContain('3')
+  })
+
+  it('stays silent when nothing triggered', () => {
+    const out = formatReport({ meta, score, failures: [], recon: { triggered: 0, immediate: 0, afterRecon: 0 } })
+    expect(out).not.toContain('정찰')
+  })
+})
+
+// 훅을 가진 플러그인은 트리거 숫자가 description 단독 성능이 아니다 — superpowers 실측에서
+// 자체 SessionStart 훅이 발동을 밀어붙였다. 라벨 없이는 그 숫자를 description 공로로 오독한다.
+describe('formatReport · 훅·주입 라벨', () => {
+  it('labels the trigger axis as plugin-level when the plugin ships hooks', () => {
+    const out = formatReport({ meta: { ...meta, pluginHasHooks: true }, score, failures: [] })
+    expect(out).toContain('훅 포함')
+  })
+
+  it('stays silent about hooks when the plugin has none', () => {
+    const out = formatReport({ meta, score, failures: [] })
+    expect(out).not.toContain('훅 포함')
+  })
+
+  it('states that the forced variant ran with the body injected', () => {
+    const out = formatReport({ meta: { ...meta, forcedBodyInjected: true }, score, failures: [] })
+    expect(out).toContain('본문을 프롬프트로 주입')
+  })
+
+  it('notes that the baseline ran plugin-free under full isolation', () => {
+    const out = formatReport({ meta, score, failures: [] })
+    expect(out).toContain('baseline')
   })
 })

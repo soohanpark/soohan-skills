@@ -2,6 +2,10 @@ export type RunStatus = 'ok' | 'error' | 'timeout'
 
 export interface ParsedRun {
   triggered: boolean
+  // 첫 대상 Skill 호출 이전의 tool_use 수. 0 = 즉시 발동, null = 미발동. 트리거 축이 정찰
+  // 1턴을 허용하므로(--max-turns 2) "정찰 후 발동"과 "즉시 발동"을 리포트가 구분해야 한다 —
+  // 실측(2026-07-30)에서 발동을 가른 변수는 프롬프트의 의미가 아니라 정찰 여부였다.
+  reconToolCalls: number | null
   truncated: boolean
   // 헤드리스 실행은 권한이 필요한 도구를 사람에게 묻지 않고 즉시 거부한다 — 멈추지는 않지만
   // 스킬이 제 일을 못 한 채 답을 낸다. 종료 상태에는 안 나타나므로 여기서 꺼내지 않으면
@@ -93,6 +97,8 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
     typeof v === 'string' && readPattern !== null && readPattern.test(v)
 
   let triggered = false
+  let reconToolCalls: number | null = null
+  let toolCallsSeen = 0
   let skillReadFallback = false
   let finalText = ''
   let model = ''
@@ -113,8 +119,11 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
         }
         if (block.type !== 'tool_use') continue
         if (block.name === 'Skill' && block.input?.skill === opts.skillId) {
+          // 첫 발동 시점의 값이 정찰 지표다 — 이후의 재호출로 덮지 않는다.
+          if (!triggered) reconToolCalls = toolCallsSeen
           triggered = true
         }
+        toolCallsSeen += 1
         // 우회 경로는 Read 하나가 아니다. Skill·Read 가 막히면 셸로 읽는다 — 실측에서 baseline 이
         // `cat …/SKILL.md` 를 16회 썼는데 플래그는 false 로 남았다 (2026-07-28).
         if (block.name === 'Read' && typeof block.input?.file_path === 'string') {
@@ -144,7 +153,7 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
 
   if (!result) {
     return {
-      triggered, truncated: false, permissionDenials: [], skillReadFallback, finalText,
+      triggered, reconToolCalls, truncated: false, permissionDenials: [], skillReadFallback, finalText,
       status: 'error', terminalReason: 'no_result_event',
       tokens: 0, costUsd: 0, model, loadedSkills
     }
@@ -165,6 +174,7 @@ export const parseClaudeStream = (raw: string, opts: ParseOptions): ParsedRun =>
 
   return {
     triggered,
+    reconToolCalls,
     truncated: terminalReason === TRUNCATED_REASON,
     permissionDenials,
     skillReadFallback,
@@ -216,7 +226,7 @@ export const parseCodexStream = (raw: string, opts: ParseOptions): ParsedRun => 
 
   if (!done) {
     return {
-      triggered, truncated: false, permissionDenials: [], skillReadFallback: false, finalText,
+      triggered, reconToolCalls: null, truncated: false, permissionDenials: [], skillReadFallback: false, finalText,
       status: 'error', terminalReason: 'no_completion_event',
       tokens: 0, costUsd: 0, model: '', loadedSkills: []
     }
@@ -225,6 +235,7 @@ export const parseCodexStream = (raw: string, opts: ParseOptions): ParsedRun => 
   const usage = done.usage ?? {}
   return {
     triggered,
+    reconToolCalls: null,       // Codex 스트림에는 대응하는 신호 계약이 없다 — 세지 않는다
     truncated: false,           // Codex 이벤트에 턴 절단 신호가 없다 (실측)
     permissionDenials: [],      // Codex 이벤트에 권한 거부 필드가 없다 (실측)
     skillReadFallback: false,   // Codex는 SKILL.md를 읽는 것 자체가 유일한 발동 경로라 별도 우회 신호가 없다

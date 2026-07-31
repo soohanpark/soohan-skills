@@ -5,7 +5,7 @@ import { readJudgeCheck, type JudgeCheck, type PairwiseScore } from '../judge.js
 import { casesFile, evalsRoot, runDir } from '../paths.js'
 import type { IndexEntry, RunMeta } from '../record.js'
 import { formatDiff, formatReport } from '../report.js'
-import { collectFailures, scoreRules, scoreTrigger, summarizeExecution, tokenDelta } from '../score.js'
+import { collectFailures, scoreRules, scoreTrigger, summarizeExecution, summarizeRecon, tokenDelta } from '../score.js'
 
 /* v8 ignore start */
 export const loadRun = (repoRoot: string, runId: string) => {
@@ -32,7 +32,9 @@ const loadPairwise = (repoRoot: string, runId: string): { score: PairwiseScore; 
 
 export const cmdReport = (runId: string, repoRoot: string): void => {
   const { meta, index, cases, drifted, score } = loadRun(repoRoot, runId)
-  const rules = scoreRules(index, cases)
+  // 본문 주입 런의 forced 는 발동 검사를 걸지 않는다 — 측정 조건은 meta 가 안다.
+  const forcedBodyInjected = meta.forcedBodyInjected ?? false
+  const rules = scoreRules(index, cases, { forcedBodyInjected })
   const pairwise = loadPairwise(repoRoot, runId)
   console.log(formatReport({
     meta, score,
@@ -45,9 +47,10 @@ export const cmdReport = (runId: string, repoRoot: string): void => {
     // "잴 것이 없었다"가 아니라 "재지 않았다"다.
     qualitativeAwaitingJudge: cases.filter(c => c.qualitative && c.split === 'test').length,
     hasBaselineRuns: index.some(e => e.variant === 'without'),
-    tokens: tokenDelta(index) ?? undefined,
+    tokens: tokenDelta(index, { forcedBodyInjected }) ?? undefined,
     execution: summarizeExecution(index),
-    casesDrifted: drifted
+    casesDrifted: drifted,
+    recon: summarizeRecon(index)
   }))
 }
 

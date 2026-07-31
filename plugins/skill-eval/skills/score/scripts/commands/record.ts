@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { casesDrifted, hashCases, loadCases, type EvalCase } from '../cases.js'
 import type { ParsedRun } from '../parse.js'
 import { parseClaudeStream, parseCodexStream } from '../parse.js'
-import { casesFile, evalsRoot, resolveSkill, runDirName, skillMdExists } from '../paths.js'
+import { casesFile, evalsRoot, pluginShipsHooks, resolveSkill, runDirName, skillMdExists } from '../paths.js'
 import { planRuns, recordAll, type PlanItem, type RuntimeName } from '../record.js'
 import { buildArgs, execClaude, isolationLevel, sideEffectsAllowed, type BuildOptions, type Exec, type SkillRef, type Variant } from '../runtimes/claude.js'
 import { buildCodexArgs, execCodex } from '../runtimes/codex.js'
@@ -55,18 +55,27 @@ export const RUNTIMES: Record<RuntimeName, RuntimeAdapter> = {
   }
 }
 
-// record 서브커맨드의 나머지 argv 에서 두 플래그를 골라낸다 (순수 — 테스트 대상).
+// record 서브커맨드의 나머지 argv 에서 플래그를 골라낸다 (순수 — 테스트 대상).
 // 모르는 플래그는 던진다 — --reusme 같은 오타가 조용히 새 런을 처음부터 돌리면 안 된다 (재검증 리뷰 3).
-export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: string } => {
+export const parseRecordFlags = (flags: string[]): { runtime?: string; resume?: string; cases?: string[] } => {
   const isKnown = (f: string) =>
-    f.startsWith('--runtime=') || f === 'claude' || f === 'codex' || f.startsWith('--resume=')
+    f.startsWith('--runtime=') || f === 'claude' || f === 'codex' || f.startsWith('--resume=') || f.startsWith('--case=')
   const unknown = flags.find(f => !isKnown(f))
   if (unknown) {
-    throw new Error(`알 수 없는 플래그 "${unknown}" — --runtime=claude|codex, --resume=<runId> 만 받습니다.`)
+    throw new Error(`알 수 없는 플래그 "${unknown}" — --runtime=claude|codex, --resume=<runId>, --case=<id[,id…]> 만 받습니다.`)
+  }
+  const caseFlag = flags.find(f => f.startsWith('--case='))
+  const cases = caseFlag === undefined
+    ? undefined
+    : caseFlag.slice('--case='.length).split(',').map(s => s.trim()).filter(Boolean)
+  // 빈 값이 조용히 "0건 실행"이 되면 오타가 측정 생략으로 둔갑한다.
+  if (cases !== undefined && cases.length === 0) {
+    throw new Error('--case= 에 케이스 id 가 없습니다 — --case=<id[,id…]> 형식입니다.')
   }
   return {
     runtime: flags.find(f => f.startsWith('--runtime=') || f === 'claude' || f === 'codex'),
-    resume: flags.find(f => f.startsWith('--resume='))?.slice('--resume='.length)
+    resume: flags.find(f => f.startsWith('--resume='))?.slice('--resume='.length),
+    cases
   }
 }
 
@@ -142,9 +151,18 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
     process.exit(1)
   }
 
-  const { runtime: runtimeFlag, resume } = parseRecordFlags(flags)
+  const { runtime: runtimeFlag, resume, cases: caseFilter } = parseRecordFlags(flags)
   const cases = loadCases(file)
   const casesHash = hashCases(cases)
+  // 필터의 오타가 조용히 "해당 케이스 없음"으로 흐르면 안 된다 — 실측 요청이 증발한다.
+  if (caseFilter) {
+    const known = new Set(cases.map(c => c.id))
+    const unknownIds = caseFilter.filter(id => !known.has(id))
+    if (unknownIds.length > 0) {
+      console.error(`✗ 케이스 파일에 없는 id 입니다: ${unknownIds.join(', ')}`)
+      process.exit(1)
+    }
+  }
   let recordedHash = casesHash
   const runId = resume ?? runDirName(skill.id, new Date())
   let runtimeName = parseRuntimeFlag(runtimeFlag, detectRuntime())
@@ -180,7 +198,12 @@ export const cmdRecord = async (skillArg: string, repoRoot: string, flags: strin
     runtime: runtime.name,
     sideEffectsAllowed: sideEffectsAllowed(),
     // codex 는 CODEX_HOME 격리가 인증을 깨뜨려(실측 401) 격리를 지원하지 않는다.
-    isolation: runtime.name === 'claude' ? isolationLevel(skill) : 'off'
+    isolation: runtime.name === 'claude' ? isolationLevel(skill) : 'off',
+    // 본문 주입은 claude 런타임만 — codex 의 buildArgs 는 이 옵션을 소비하지 않으므로
+    // 넘기면 meta.forcedBodyInjected 가 거짓말이 된다.
+    skillMd: runtime.name === 'claude' ? readFileSync(join(skill.dir, 'SKILL.md'), 'utf8') : undefined,
+    pluginHasHooks: skill.pluginRoot !== undefined && pluginShipsHooks(skill.pluginRoot),
+    only: caseFilter
   })
   console.log(`런타임: ${runtime.name}`)
   console.log(formatRecordSummary(res, runId))

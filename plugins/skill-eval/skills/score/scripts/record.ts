@@ -34,6 +34,13 @@ export interface RunMeta {
   // 격리 수준도 같은 이유로 남긴다 — 비격리 트리거 축은 계정의 전역 스킬·훅과 경쟁한
   // 결과라, 점수를 읽는 사람이 그 사실을 모르면 미발동을 description 탓으로 오독한다.
   isolation: IsolationLevel
+  // forced 프롬프트에 SKILL.md 본문이 주입됐는가. 주입 런은 "본문이 컨텍스트에 있음"이
+  // 구성상 보장되므로 채점이 Skill tool_use 발동 검사를 요구하면 안 된다 — 채점 시점에
+  // 이 조건을 알려면 파일에 남아야 한다.
+  forcedBodyInjected: boolean
+  // 대상 플러그인이 훅을 싣는가. 참이면 트리거 축은 description 단독이 아니라
+  // "플러그인 전체(훅 포함) 발동률"이다 — 리포트가 그렇게 라벨한다.
+  pluginHasHooks: boolean
 }
 
 export interface IndexEntry {
@@ -72,6 +79,7 @@ export const planRuns = (
 
 const errorRun = (reason: string): ParsedRun => ({
   triggered: false,
+  reconToolCalls: null,
   skillReadFallback: false,
   finalText: '',
   // makeExec 의 wall-clock 킬만 이 메시지를 만든다 — 양끝 앵커로 정확히 그 메시지만 잡는다.
@@ -107,6 +115,12 @@ export const recordAll = async (args: {
   casesHash?: string
   sideEffectsAllowed?: boolean
   isolation?: IsolationLevel
+  // 측정 대상 SKILL.md 전문 — forced 변형의 프롬프트 주입용. 호출부(CLI 계층)가 읽어 넘긴다.
+  skillMd?: string
+  pluginHasHooks?: boolean
+  // 재측정할 케이스 id 목록. 지정 케이스는 기존 기록을 덮어쓰고, 나머지는 기존 기록만
+  // index 로 재구성한다 — 기록 없는 케이스는 index 에서도 빠져 report 가 notRun 으로 잡는다.
+  only?: string[]
   sleep?: (ms: number) => Promise<void>
   buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
   parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
@@ -151,7 +165,9 @@ export const recordAll = async (args: {
       degradedBaseline: args.degradedBaseline ?? true,
       runtime: args.runtime ?? 'claude',
       sideEffectsAllowed: args.sideEffectsAllowed ?? false,
-      isolation
+      isolation,
+      forcedBodyInjected: args.skillMd !== undefined,
+      pluginHasHooks: args.pluginHasHooks ?? false
     }
     writeFileSync(join(outDir, 'index.json'), JSON.stringify(index, null, 2))
     writeFileSync(join(outDir, 'meta.json'), JSON.stringify(meta, null, 2))
@@ -160,7 +176,10 @@ export const recordAll = async (args: {
 
   for (const item of plan) {
     const target = join(outDir, item.file)
-    if (existsSync(target)) {
+    // only 는 재측정 요청이다 — 지정 케이스는 기존 기록이 있어도 다시 실행해 덮어쓴다.
+    const rerunRequested = args.only !== undefined && args.only.includes(item.caseId)
+    const outOfScope = args.only !== undefined && !args.only.includes(item.caseId)
+    if (existsSync(target) && !rerunRequested) {
       // 이전 호출에서 이미 적재된 항목이다 — 재실행하지 않되, 원본을 다시 읽어
       // index 에는 온전한 엔트리로 남긴다. 그렇지 않으면 재개된 실행의 index.json 이
       // 이번 호출분만 담아 이전 결과를 통째로 잃는다.
@@ -172,6 +191,8 @@ export const recordAll = async (args: {
       persistIndex()
       continue
     }
+    // 범위 밖 + 기록 없음 — 실행도 index 도 없다. report 가 notRun(판정 불가)으로 잡는다.
+    if (outOfScope) continue
 
     const attempt = async (): Promise<{ parsed: ParsedRun; stdout: string | null; durationMs: number }> => {
       // 격리 모드는 실행마다 새 빈 디렉터리를 파서 CLI 의 cwd 로 준다. 실제 워크스페이스에서
@@ -183,7 +204,8 @@ export const recordAll = async (args: {
         // Task 3 Step 5 실측: Read(<dir>/**) deny 패턴은 -p 모드에서 무시된다.
         // 따라서 degraded(Read/Grep/Glob 전면 차단)가 baseline 의 기본값이다.
         const argv = buildArgsFn(item.variant, skill, item.prompt, {
-          degradedBaseline: args.degradedBaseline ?? true
+          degradedBaseline: args.degradedBaseline ?? true,
+          skillMd: args.skillMd
         })
         const { stdout, durationMs: ms } = await exec(argv, ws ? { cwd: ws } : undefined)
         return {

@@ -65,8 +65,9 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
     if (!without) { skip(c, 'baseline(without) 실행 기록이 없습니다'); continue }
     if (without.parsed.status !== 'ok') { skip(c, `baseline: ${without.parsed.terminalReason}`); continue }
     // forced 가 잘렸거나 스킬이 붙지 않았으면 비교 대상이 아니다 — 스킬 없이 낸 답을
-    // 스킬 편에 세우면 페어와이즈가 스킬이 아니라 모델을 재게 된다.
-    const usable = forcedUsable(forced)
+    // 스킬 편에 세우면 페어와이즈가 스킬이 아니라 모델을 재게 된다. 본문 주입 런은
+    // 붙었는가가 구성상 보장되므로 발동 검사를 걸지 않는다.
+    const usable = forcedUsable(forced, { bodyInjected: meta.forcedBodyInjected ?? false })
     if (!usable.usable) { skip(c, usable.detail); continue }
     const baselineDenials = without.parsed.permissionDenials ?? []
     if (baselineDenials.length > 0) {
@@ -100,7 +101,7 @@ export const cmdJudge = async (runId: string, repoRoot: string): Promise<void> =
   // A=A sanity check — 동일 출력을 양쪽에 넣었을 때 무승부가 아니면 이 심판은 못 믿는다 (설계 §7-2).
   // 검사에 쓸 샘플이 없으면 'unchecked' 다. 예전에는 초기값 true 가 그대로 기록돼, 검사를 한 번도
   // 안 돌린 실행이 '신뢰함'으로 저장됐다.
-  const sample = index.find(e => e.variant === 'forced' && forcedUsable(e).usable)
+  const sample = index.find(e => e.variant === 'forced' && forcedUsable(e, { bodyInjected: meta.forcedBodyInjected ?? false }).usable)
   let judgeCheck: JudgeCheck = 'unchecked'
   if (sample) {
     try {

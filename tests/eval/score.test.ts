@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest'
-import { scoreTrigger, collectFailures, forcedUsable, scoreRules, summarizeExecution, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
+import { scoreTrigger, collectFailures, forcedUsable, scoreRules, summarizeExecution, summarizeRecon, tokenDelta } from '../../plugins/skill-eval/skills/score/scripts/score'
 import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
 import type { IndexEntry } from '../../plugins/skill-eval/skills/score/scripts/record'
 
 const parsed = (over: Partial<IndexEntry['parsed']> = {}) => ({
-  triggered: false, skillReadFallback: false, finalText: '',
+  triggered: false, reconToolCalls: null, skillReadFallback: false, finalText: '',
   status: 'ok' as const, terminalReason: 'completed', truncated: false, permissionDenials: [] as string[], tokens: 0, costUsd: 0,
   model: 'm', loadedSkills: [], ...over
 })
@@ -160,6 +160,26 @@ describe('collectFailures', () => {
     const f = collectFailures(index, cases)
     expect(f).toHaveLength(1)
     expect(f[0]).toEqual({ caseId: 'p1', kind: 'error', detail: 'api_error' })
+  })
+})
+
+describe('scoreRules · 본문 주입 모드', () => {
+  const ruleCase: EvalCase = { id: 'q1', prompt: 'p', expect: 'trigger', split: 'test', must: ['x'] }
+  const forcedRun = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
+    ...entry('q1', 1, { triggered: false, finalText: 'x 포함', ...over }), variant: 'forced'
+  })
+
+  it('scores an untriggered forced run when the body was injected', () => {
+    const s = scoreRules([forcedRun()], [ruleCase], { forcedBodyInjected: true })
+    expect(s.test.total).toBe(1)
+    expect(s.test.pass).toBe(1)
+    expect(s.test.undecided).toEqual([])
+  })
+
+  it('keeps the untriggered run undecided without injection', () => {
+    const s = scoreRules([forcedRun()], [ruleCase])
+    expect(s.test.total).toBe(0)
+    expect(s.test.undecided).toEqual(['q1'])
   })
 })
 
@@ -319,7 +339,7 @@ describe('forcedUsable', () => {
   const run = (over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
     caseId: 'q1', variant: 'forced', repeat: 1, file: 'f.jsonl', durationMs: 1,
     parsed: {
-      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'x',
+      triggered: true, reconToolCalls: 0, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'x',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: 'm', loadedSkills: []
     }
   })
@@ -327,6 +347,22 @@ describe('forcedUsable', () => {
     const base = run()
     return { ...base, parsed: { ...base.parsed, ...over } }
   }
+
+  // 본문 주입 모드에서는 "스킬이 붙었는가"가 구성상 보장되므로 Skill tool_use 검사를 걸면
+  // 안 된다 — 실측(2026-07-30)에서 같은 강제 명령이 블록 없이 체크리스트만 따른 런이
+  // 미발동으로 오진돼 쌍이 폐기됐다. 나머지 필터(에러·절단·권한 거부)는 그대로 적용한다.
+  describe('본문 주입 모드', () => {
+    it('accepts an untriggered forced run when the body was injected', () => {
+      const r = withParsed({ triggered: false })
+      expect(forcedUsable(r, { bodyInjected: true }).usable).toBe(true)
+      expect(forcedUsable(r).usable).toBe(false)
+    })
+
+    it('still rejects denial and truncation under injection', () => {
+      expect(forcedUsable(withParsed({ permissionDenials: ['Read'] }), { bodyInjected: true }).usable).toBe(false)
+      expect(forcedUsable(withParsed({ truncated: true }), { bodyInjected: true }).usable).toBe(false)
+    })
+  })
 
   it('accepts a completed run that actually loaded the skill', () => {
     expect(forcedUsable(run()).usable).toBe(true)
@@ -376,12 +412,43 @@ describe('scoreTrigger · 실행 기록이 없는 케이스', () => {
   })
 })
 
+// 정찰 지표 집계: 트리거 축이 정찰 1턴을 허용하므로, 발동 런을 "즉시"와 "정찰 후"로 나눠
+// 보여야 한다 — 1턴 측정에서는 정찰 부류가 통째로 미발동으로 집계됐다 (실측 2026-07-30, 47/54).
+describe('summarizeRecon', () => {
+  it('buckets triggered with-runs into immediate and after-recon', () => {
+    const index = [
+      entry('p1', 1, { triggered: true, reconToolCalls: 0 }),
+      entry('p1', 2, { triggered: true, reconToolCalls: 2 }),
+      entry('p2', 1, { triggered: false, reconToolCalls: null })
+    ]
+    expect(summarizeRecon(index)).toEqual({ triggered: 2, immediate: 1, afterRecon: 1 })
+  })
+
+  it('ignores runs recorded before the field existed', () => {
+    const legacy = entry('p1', 1, { triggered: true, reconToolCalls: undefined as never })
+    expect(summarizeRecon([legacy])).toEqual({ triggered: 1, immediate: 0, afterRecon: 0 })
+  })
+
+  it('only looks at the with variant', () => {
+    const forced = { ...entry('q1', 1, { triggered: true, reconToolCalls: 0 }), variant: 'forced' as const }
+    expect(summarizeRecon([forced])).toEqual({ triggered: 0, immediate: 0, afterRecon: 0 })
+  })
+})
+
 describe('tokenDelta · 비교 가능한 짝만 센다', () => {
   const f = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
     ...entry(caseId, 1, { triggered: true, ...over }), variant: 'forced'
   })
   const w = (caseId: string, over: Partial<IndexEntry['parsed']> = {}): IndexEntry => ({
     ...entry(caseId, 1, over), variant: 'without'
+  })
+
+  it('keeps an untriggered forced run when the body was injected', () => {
+    const d = tokenDelta(
+      [f('q1', { tokens: 5000, triggered: false }), w('q1', { tokens: 100 })],
+      { forcedBodyInjected: true }
+    )
+    expect(d).toEqual({ forced: 5000, without: 100 })
   })
 
   it('drops a truncated forced run — its tokens measure the turn limit, not the skill', () => {

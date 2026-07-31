@@ -162,6 +162,12 @@ export const resolveSkill = (arg: string, repoRoot: string, opts: InstalledLooku
 export const skillMdExists = (skill: SkillRef): boolean =>
   existsSync(join(skill.dir, 'SKILL.md'))
 
+// 훅을 가진 플러그인의 트리거 축은 description 단독이 아니라 "플러그인 전체(훅 포함) 발동률"
+// 이다 — 실측(2026-07-30, superpowers)에서 자체 SessionStart 훅이 발동을 밀어붙였다. 리포트가
+// 그 사실을 라벨할 수 있게 기록 시점에 감지해 meta 에 남긴다.
+export const pluginShipsHooks = (pluginRoot: string): boolean =>
+  existsSync(join(pluginRoot, 'hooks', 'hooks.json'))
+
 export const slug = (id: string): string => id.replace(':', '.')
 
 // 초까지 넣는다. 분 단위였을 때는 SKILL.md 를 고치고 60초 안에 다시 돌리면 디렉터리가 겹쳐

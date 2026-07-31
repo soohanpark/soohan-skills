@@ -196,10 +196,10 @@ describe('recordAll runtime injection (defaults to claude)', () => {
     let seenArgs: string[] = []
     const exec: Exec = async (args) => { seenArgs = args; return { stdout: okStream, durationMs: 1 } }
     await recordAll({ plan, skill, outDir: out, exec })
-    // claude buildArgs('with', ...) 는 -p <prompt> --max-turns 1 을 낳는다.
+    // claude buildArgs('with', ...) 는 -p <prompt> --max-turns 2 (정찰 1턴 허용) 를 낳는다.
     expect(seenArgs).toContain('-p')
     expect(seenArgs).toContain('p-a')
-    expect(seenArgs).toEqual(expect.arrayContaining(['--max-turns', '1']))
+    expect(seenArgs).toEqual(expect.arrayContaining(['--max-turns', '2']))
   })
 
   it('uses an injected buildArgsFn instead of the claude default when supplied', async () => {
@@ -222,7 +222,7 @@ describe('recordAll runtime injection (defaults to claude)', () => {
   it('uses an injected parse function instead of the claude default when supplied', async () => {
     const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
     const fakeParse = (): ParsedRun => ({
-      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'custom',
+      triggered: true, reconToolCalls: 0, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'custom',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
     })
     await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
@@ -235,7 +235,7 @@ describe('recordAll runtime injection (defaults to claude)', () => {
     mkdirSync(out, { recursive: true })
     writeFileSync(join(out, 'with--a--r1.jsonl'), okStream)
     const fakeParse = (): ParsedRun => ({
-      triggered: true, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'from-skip-path',
+      triggered: true, reconToolCalls: 0, truncated: false, permissionDenials: [], skillReadFallback: false, finalText: 'from-skip-path',
       status: 'ok', terminalReason: 'completed', tokens: 0, costUsd: 0, model: '', loadedSkills: []
     })
     const res = await recordAll({ plan, skill, outDir: out, exec: execOk, parse: fakeParse })
@@ -519,6 +519,88 @@ describe('recordAll · 격리 cwd', () => {
     expect(snapshots[0].cwd).toBeUndefined()
     const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
     expect(meta.isolation).toBe('off')
+  })
+})
+
+// forced 본문 주입: cmdRecord 가 SKILL.md 를 읽어 넘기면 recordAll 이 buildArgsFn 까지
+// 전달하고, 그 사실을 meta 에 남긴다 — 채점(forcedUsable)이 주입 여부에 따라 발동 검사를
+// 다르게 적용해야 하므로 측정 조건이 파일에 남아야 한다.
+describe('recordAll · skillMd 전달', () => {
+  it('passes skillMd through to the args builder', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    let seenOpts: { skillMd?: string } | undefined
+    const spyBuild = (_v: unknown, _s: unknown, _p: unknown, opts?: { skillMd?: string }) => {
+      seenOpts = opts
+      return ['x']
+    }
+    await recordAll({ plan, skill, outDir: out, exec: execOk, buildArgsFn: spyBuild as never, skillMd: '# 본문' })
+    expect(seenOpts?.skillMd).toBe('# 본문')
+  })
+
+  it('records forcedBodyInjected in meta.json when a body was supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, skillMd: '# 본문' })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.forcedBodyInjected).toBe(true)
+  })
+
+  it('records forcedBodyInjected false when no body was supplied', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.forcedBodyInjected).toBe(false)
+  })
+
+  // 훅 유무는 리포트의 트리거 축 라벨("플러그인 전체 발동률")의 근거다 — 측정 조건이므로 파일에 남는다.
+  it('records pluginHasHooks in meta.json', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk, pluginHasHooks: true })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.pluginHasHooks).toBe(true)
+  })
+
+  it('defaults pluginHasHooks to false', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    await recordAll({ plan, skill, outDir: out, exec: execOk })
+    const meta = JSON.parse(readFileSync(join(out, 'meta.json'), 'utf8'))
+    expect(meta.pluginHasHooks).toBe(false)
+  })
+})
+
+// --case 필터: 문제가 된 한두 케이스만 다시 재는 용도다. 지정 케이스는 기존 기록이 있어도
+// 다시 실행해 덮어쓰고(재측정 요청이므로), 나머지는 기존 기록만 index 로 재구성한다 —
+// 기록이 없는 케이스는 index 에서도 빠져 report 가 notRun(판정 불가)으로 정확히 잡는다.
+describe('recordAll · only 케이스 필터', () => {
+  it('executes only the selected case and leaves others out of the index', async () => {
+    const plan = planRuns(cases, { variants: ['with'], repeats: 1 })
+    let calls = 0
+    const exec: Exec = async () => { calls += 1; return { stdout: okStream, durationMs: 1 } }
+    const res = await recordAll({ plan, skill, outDir: out, exec, only: ['a'] })
+    expect(calls).toBe(1)
+    expect(res.written).toBe(1)
+    expect(existsSync(join(out, 'with--b--r1.jsonl'))).toBe(false)
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index.map((e: { caseId: string }) => e.caseId)).toEqual(['a'])
+  })
+
+  it('re-executes a selected case even when its raw file already exists', async () => {
+    const plan = planRuns([cases[0]], { variants: ['with'], repeats: 1 })
+    mkdirSync(out, { recursive: true })
+    writeFileSync(join(out, 'with--a--r1.jsonl'), errStream)
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk, only: ['a'] })
+    expect(res.written).toBe(1)
+    expect(res.skipped).toBe(0)
+    expect(readFileSync(join(out, 'with--a--r1.jsonl'), 'utf8')).toBe(okStream)
+  })
+
+  it('keeps existing recordings of unselected cases in the index', async () => {
+    const plan = planRuns(cases, { variants: ['with'], repeats: 1 })
+    mkdirSync(out, { recursive: true })
+    writeFileSync(join(out, 'with--b--r1.jsonl'), okStream)
+    const res = await recordAll({ plan, skill, outDir: out, exec: execOk, only: ['a'] })
+    expect(res.skipped).toBe(1)
+    const index = JSON.parse(readFileSync(join(out, 'index.json'), 'utf8'))
+    expect(index.map((e: { caseId: string }) => e.caseId).sort()).toEqual(['a', 'b'])
   })
 })
 

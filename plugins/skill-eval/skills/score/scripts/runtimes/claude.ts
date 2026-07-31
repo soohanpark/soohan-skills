@@ -13,7 +13,26 @@ export interface SkillRef {
 
 export interface BuildOptions {
   degradedBaseline?: boolean
+  // forced 변형에 프롬프트로 직접 주입할 SKILL.md 전문. 실측(2026-07-30, CLI 2.1.220):
+  // -p 모드의 슬래시 커맨드는 "로드했다"는 메시지만 남기고 본문을 컨텍스트에 넣지 않는다.
+  // 격리 전에는 계정의 Bash(*) 허용이 모델의 자가-읽기 폴백을 지탱해 티가 안 났을 뿐이다.
+  skillMd?: string
 }
+
+// 본문을 하네스가 직접 넣으면 "본문이 컨텍스트에 있다"가 구성상 보장된다 — Skill tool_use
+// 블록 유무로 발동을 재는 비결정적 검사(같은 명령이 블록 없이 체크리스트만 따른 사례 실측)가
+// 통째로 불필요해진다. 참조 파일 경로를 함께 알려 상대 참조가 풀리게 한다.
+export const buildForcedPrompt = (skill: SkillRef, skillMd: string, prompt: string): string => `
+아래는 이 요청에 사용할 스킬 "${skill.id}"의 지침 전문이다. 이 지침을 따라 요청을 수행하라.
+스킬의 참조 파일들은 ${skill.dir} 에 있다.
+
+<skill-instructions>
+${skillMd}
+</skill-instructions>
+
+## 요청
+${prompt}
+`.trim()
 
 export interface ExecOutcome {
   stdout: string
@@ -65,14 +84,46 @@ export type IsolationLevel = 'full' | 'cwd' | 'off'
 // --bare 는 더 강한 격리지만 OAuth/키체인을 안 읽어(ANTHROPIC_API_KEY 강제) 채택하지 않았다.
 //
 // 개인 스킬(~/.claude/skills)은 유저 스코프에 산다 — 스코프를 제외하면 측정 대상 자체가 안
-// 실리므로 cwd 격리만 한다('cwd'). 부수효과 모드는 실환경 측정이 목적이므로 격리 전체를 끈다.
+// 실리므로 cwd 격리만 한다('cwd'). 부수효과 모드도 'cwd' 다: 도구를 실환경으로 여는 것과
+// 실행마다 새 빈 폴더를 주는 것은 별개고, cwd 까지 공유하면 앞 런의 산출물이 뒷 런의 전제를
+// 깬다 (실측 2026-07-30, init 1단계 가드가 이전 런의 산출물을 보고 거부). 'off' 는 codex
+// 런타임과 이 필드가 생기기 전의 기록에만 남는다.
 export const isolationLevel = (skill: SkillRef): IsolationLevel =>
-  sideEffectsAllowed() ? 'off' : skill.pluginRoot ? 'full' : 'cwd'
+  sideEffectsAllowed() ? 'cwd' : skill.pluginRoot ? 'full' : 'cwd'
 
-const isolationArgs = (skill: SkillRef): string[] =>
-  isolationLevel(skill) !== 'full' || !skill.pluginRoot
+// 세 변형이 요구하는 환경은 서로 다르다 (실측 2026-07-30, msuarcade·superpowers 리포트):
+//  - with    대상 플러그인 전체(훅 포함)가 후보에 있어야 트리거가 성립한다.
+//  - forced  스킬이 실제로 일해야 한다 — 참조 파일·애셋이 플러그인 디렉터리에 있으므로
+//            --add-dir 로 연다 (Read·Bash 접근을 함께 열고, 그 디렉터리의 CLAUDE.md 는 주입되지
+//            않음을 실측 확인. 임시 cwd 에 설정을 심는 방식은 미신뢰 워크스페이스라 무시된다).
+//  - without 대조군은 스킬의 어떤 흔적도 몰라야 한다. --plugin-dir 는 훅·스킬 목록까지 실어서,
+//            baseline 이 훅으로 스킬의 교리를 주입받은 채 답하면 페어와이즈 델타가 0에 눌린다.
+//            플러그인 자체를 싣지 않으면 훅 차단 설정도 따로 필요 없다.
+// 품질 변형(forced·without)은 스킬/모델이 실제로 일해야 한다. 헤드리스 기본 권한은 git 등
+// 임의 Bash 명령과 파일 쓰기를 승인 대기로 즉시 거부한다 — 실측(2026-07-31 스모크): forced 가
+// git --version 거부에 막혀 절차를 시작하지 못했다. 격리 전에는 계정 설정의 Bash(*) 허용이
+// 이 요구를 몰래 채우고 있었다. 명시 허용으로 그 조건을 재현한다 — 위험 표면은 그대로다:
+// SIDE_EFFECT_TOOLS 는 --disallowedTools 로 막혀 있고(거부가 허용에 우선), MCP 는
+// --strict-mcp-config 로 끊겨 있으며, cwd 는 일회용 임시 디렉터리다. 트리거 변형(with)에는
+// 주지 않는다 — 권한 표면이 넓어지면 발동 행동 자체가 달라질 수 있다.
+const QUALITY_TOOL_ALLOWS = ['Bash(*)', 'Write', 'Edit', 'NotebookEdit']
+
+const qualityToolArgs = (variant: Variant): string[] =>
+  variant === 'with'
     ? []
-    : ['--setting-sources', 'project', '--plugin-dir', skill.pluginRoot]
+    : ['--allowedTools', ...QUALITY_TOOL_ALLOWS, ...(variant === 'forced' ? ['Read'] : [])]
+
+// 개인 스킬(pluginRoot 없음)은 유저 스코프 유지가 전제라 --setting-sources 를 걸지 않는다.
+const isolationArgs = (variant: Variant, skill: SkillRef): string[] => {
+  if (sideEffectsAllowed()) return []
+  const args: string[] = []
+  if (skill.pluginRoot) {
+    args.push('--setting-sources', 'project')
+    if (variant !== 'without') args.push('--plugin-dir', skill.pluginRoot)
+  }
+  if (variant === 'forced') args.push('--add-dir', skill.pluginRoot ?? skill.dir)
+  return args
+}
 
 // 실측(2026-07-29, claude-code 2.1.220): 헤드리스 -p 는 세션의 도구 레지스트리를 그대로
 // 상속한다 — 기본 149개 중 116개가 연결된 MCP 서버였고, Gmail·Slack·Notion·Drive 의 쓰기
@@ -111,8 +162,11 @@ export const buildArgs = (
   opts: BuildOptions = {}
 ): string[] => {
   if (variant === 'with') {
-    // 트리거는 첫 턴에 결정되므로 그 뒤 실행은 전부 낭비다 (설계 §3-3)
-    return ['-p', prompt, ...STREAM_ARGS, '--max-turns', '1', ...restrictionArgs([]), ...isolationArgs(skill)]
+    // 정찰 한 턴을 허용한다. 1턴 제한의 실측(2026-07-30, msuarcade:init): 54런 중 47런이
+    // 첫 턴을 폴더 정찰(ls)에 쓰고 잘려 미발동으로 집계됐다 — 트리거가 "첫 턴에 결정"된다는
+    // 전제가 전제 검증을 유도하는 description 부류에서 성립하지 않는다. 2턴이면 정찰 → 발동이
+    // 담기고, 그 뒤 실행은 여전히 낭비이므로 자른다. 정찰 여부는 파서가 따로 센다.
+    return ['-p', prompt, ...STREAM_ARGS, '--max-turns', '2', ...restrictionArgs([]), ...isolationArgs('with', skill)]
   }
 
   if (variant === 'without') {
@@ -120,12 +174,13 @@ export const buildArgs = (
     const denied = opts.degradedBaseline
       ? ['Skill', 'Read', 'Grep', 'Glob']
       : ['Skill', `Read(${skill.dir}/**)`]
-    return ['-p', prompt, ...STREAM_ARGS, ...restrictionArgs(denied), ...isolationArgs(skill)]
+    return ['-p', prompt, ...STREAM_ARGS, ...qualityToolArgs('without'), ...restrictionArgs(denied), ...isolationArgs('without', skill)]
   }
 
-  // 검증(2026-07-24): claude -p "/plugin:skill ..." 가 -p 모드에서도 Skill tool_use를
-  // 실제로 발동시킨다 (stream-json에 "name":"Skill","input":{"skill":"<id>"} 확인).
-  return ['-p', `/${skill.id} ${prompt}`, ...STREAM_ARGS, ...restrictionArgs([]), ...isolationArgs(skill)]
+  // 본문이 주어지면 프롬프트에 직접 주입한다. 슬래시 폴백은 본문을 못 읽는 호출부(구 경로)용 —
+  // 검증(2026-07-24): claude -p "/plugin:skill ..." 가 -p 모드에서도 Skill tool_use 는 발동시킨다.
+  const forcedPrompt = opts.skillMd ? buildForcedPrompt(skill, opts.skillMd, prompt) : `/${skill.id} ${prompt}`
+  return ['-p', forcedPrompt, ...STREAM_ARGS, ...qualityToolArgs('forced'), ...restrictionArgs([]), ...isolationArgs('forced', skill)]
 }
 
 const DEFAULT_TIMEOUT_MS = 600_000

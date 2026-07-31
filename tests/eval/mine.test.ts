@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import {
-  classify, extractPrompts, keywordsFromDescription, mapLimit, mineConcurrency, toDraftCases
+  classify, extractPrompts, fallbackKeywords, keywordsFromDescription, mapLimit, mineConcurrency, toDraftCases
 } from '../../plugins/skill-eval/skills/score/scripts/mine'
 import { buildAugmentPrompt, parseVariants, attachVariants } from '../../plugins/skill-eval/skills/score/scripts/mine'
 import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
@@ -45,8 +45,44 @@ describe('keywordsFromDescription', () => {
     expect(kws).toContain('블인 MR 써줘')
   })
 
-  it('returns [] when there are no quoted phrases', () => {
-    expect(keywordsFromDescription('설명만 있고 예시는 없다')).toEqual([])
+  // 저자가 명시한 트리거 문구가 폴백 잡음보다 강한 신호다 — 섞지 않는다.
+  it('uses only the quoted phrases when they exist', () => {
+    const kws = keywordsFromDescription('Use when the user asks for MR content (e.g. "MR 써줘").')
+    expect(kws).toEqual(['MR 써줘'])
+  })
+
+  // 실측(2026-07-30): superpowers:brainstorming 의 description 에는 인용 예시가 하나도 없어
+  // 키워드가 공집합 → 세션 1094개에서 near-miss 0건. 공집합 대신 내용어로 폴백한다.
+  it('falls back to content words when no quoted phrases exist', () => {
+    const kws = keywordsFromDescription(
+      'You MUST use this before creative work - creating features, building components. 새 게임 프로젝트를 생성한다.'
+    )
+    expect(kws).toContain('creating')
+    expect(kws).toContain('features')
+    expect(kws).toContain('프로젝트를')
+    expect(kws).not.toContain('this')
+  })
+})
+
+describe('fallbackKeywords', () => {
+  it('drops boilerplate function words', () => {
+    const kws = fallbackKeywords('Use when the user asks before any work')
+    expect(kws).not.toContain('use')
+    expect(kws).not.toContain('when')
+    expect(kws).not.toContain('before')
+  })
+
+  // 한국어 어절은 조사가 붙은 채 잘린다 — "프로젝트를"만 넣으면 "프로젝트 만들어줘"를 못 잡는다.
+  it('adds a josa-stripped form of longer Korean words', () => {
+    const kws = fallbackKeywords('새 게임 프로젝트를 생성하고')
+    expect(kws).toContain('프로젝트를')
+    expect(kws).toContain('프로젝트')
+    expect(kws).toContain('게임')
+  })
+
+  it('lowercases and dedupes latin words', () => {
+    const kws = fallbackKeywords('Component component COMPONENT')
+    expect(kws.filter(k => k === 'component')).toHaveLength(1)
   })
 })
 
