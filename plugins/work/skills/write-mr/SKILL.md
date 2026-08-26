@@ -1,9 +1,9 @@
 ---
-name: write
+name: write-mr
 description: Use when the user asks for 블인팀 MR content for the current branch (e.g. "블인팀 MR 내용 작성해줘", "MR 본문 정리해줘", "블인 MR 써줘"). Analyzes committed changes against the auto-detected base branch, fills the 블인팀 fixed MR template in Korean, generates an MR title, and copies the body to the clipboard.
 ---
 
-# blin-mr:write
+# work:write-mr
 
 현재 브랜치의 커밋된 변경사항을 분석해 블인팀 고정 MR 포맷으로 한국어 제목 + 본문을
 작성하고, 본문을 클립보드에 복사한다.

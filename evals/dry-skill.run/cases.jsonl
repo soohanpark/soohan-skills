@@ -1,6 +1,0 @@
-{"id":"p1","prompt":"brainstorming 스킬을 dry run 해줘","expect":"trigger","split":"test","source":"hand"}
-{"id":"p2","prompt":"이 스킬 실제로 실행하지 말고 뭘 할지만 미리 보여줘","expect":"trigger","split":"test","source":"hand"}
-{"id":"p3","prompt":"부작용 없이 스킬 흐름만 시뮬레이션해줘","expect":"trigger","split":"train","source":"hand"}
-{"id":"n1","prompt":"이 저장소 테스트 전부 실행해줘","expect":"no-trigger","split":"test","source":"hand"}
-{"id":"n2","prompt":"git status 확인해줘","expect":"no-trigger","split":"test","source":"hand"}
-{"id":"n3","prompt":"MR 본문 작성해줘","expect":"no-trigger","split":"train","source":"hand"}

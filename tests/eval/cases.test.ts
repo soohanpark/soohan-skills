@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadCases, hashCases, casesDrifted } from '../../plugins/skill-eval/skills/score/scripts/cases'
+import { loadCases, hashCases, casesDrifted } from '../../plugins/skill-lab/skills/score/scripts/cases'
 
 let root: string
 const write = (lines: string[]) => {

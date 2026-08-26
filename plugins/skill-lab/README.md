@@ -1,4 +1,52 @@
-# skill-eval
+# skill-lab
+
+스킬을 다루는 도구 모음. 스킬이 **어떻게 도는지** 보고 싶으면 `explain`, **실제로 먹히는지**
+재고 싶으면 `score`.
+
+| 스킬 | 하는 일 |
+|---|---|
+| `skill-lab:explain` | 다른 스킬의 SKILL.md 를 읽어 동작 방식을 ASCII 플로우 다이어그램 + 단계 표로 설명 (실행 안 함) |
+| `skill-lab:score` | 스킬 하나의 트리거 정확도와 품질 델타를 실제 실행으로 측정 |
+
+## 설치
+
+Claude Code:
+
+```
+/plugin install skill-lab@soohan-skills
+/reload-plugins
+```
+
+Codex · Gemini · Kimi CLI (레포 루트에서):
+
+```bash
+./install.sh
+```
+
+---
+
+# explain — 스킬 동작 설명
+
+대상 스킬의 `SKILL.md`(및 그것이 참조하는 파일)를 읽어, 절차를 상자-화살표 다이어그램과
+단계 표로 그린다. 대상 스킬은 절대 실행하지 않는다.
+
+## 사용법
+
+- 자연어: "brainstorming 스킬 어떻게 동작해?", "이 스킬 흐름 다이어그램으로 보여줘"
+- 명시 호출: `/explain <plugin:skill>` (충돌 시 `/skill-lab:explain`) — Claude Code 전용
+- 스킬 이름 대신 의도를 자연어로 줘도 된다 — 세션의 available-skills 목록에서 매칭한 뒤 설명한다.
+
+## 나오는 것
+
+- 절차 플로우 다이어그램 (분기·중단 조건 포함)
+- 단계별 도구 호출 표
+- 부작용/가드레일 요약 — 무엇을 쓰고, 무엇을 묻고, 무엇을 스스로 금지하는지
+
+정의를 못 찾으면 이름만으로 지어내지 않고 멈춘다.
+
+---
+
+# score — 스킬 평가
 
 스킬 하나의 트리거 정확도와 품질 델타를 실제 실행으로 측정하는 평가 하네스.
 
@@ -28,25 +76,10 @@
 **판정은 합격·불합격·판정 불가 세 상태다.** 판정 불가는 통과가 아니라 측정이 성립하지
 않았다는 뜻이다 — 사유를 없앤 뒤 다시 돌려야 점수가 의미를 갖는다.
 
-## 설치
-
-Claude Code:
-
-```
-/plugin install skill-eval@soohan-skills
-/reload-plugins
-```
-
-Codex · Gemini · Kimi CLI (레포 루트에서):
-
-```bash
-./install.sh
-```
-
 ## 사용법
 
-- 자연어: "이 스킬 평가해줘", "blin-mr 발동률 좀 재줘", "description 고쳤는데 회귀 확인해줘"
-- 명시 호출: `/skill-eval:score <plugin:skill>` — Claude Code 전용
+- 자연어: "이 스킬 평가해줘", "work:write-mr 발동률 좀 재줘", "description 고쳤는데 회귀 확인해줘"
+- 명시 호출: `/score <plugin:skill>` (충돌 시 `/skill-lab:score`) — Claude Code 전용
 
 ## 동작
 
@@ -60,7 +93,7 @@ Codex · Gemini · Kimi CLI (레포 루트에서):
 스킬은 이 네 단계를 순서대로 부르고, near-miss 선별·실패 원인 진단·description 재작성
 제안처럼 판단이 필요한 지점에서만 개입한다.
 
-## 이 스킬이 하지 않는 것
+## score 가 하지 않는 것
 
 - `cases.draft.jsonl`을 `cases.jsonl`로 직접 승격하지 않는다 — 실사용 프롬프트 원문이 들어 있어
   사람이 확인해야 한다.

@@ -138,7 +138,7 @@ export const formatReport = (args: {
   })
   const lines: string[] = []
 
-  lines.push(`skill-eval · ${meta.skillId} · ${meta.runId} · ${meta.model} · 경쟁 스킬 ${meta.loadedSkills.length}개`)
+  lines.push(`skill-lab · ${meta.skillId} · ${meta.runId} · ${meta.model} · 경쟁 스킬 ${meta.loadedSkills.length}개`)
   if (execution && execution.total > 0) {
     const parts = [`${execution.ok}/${execution.total} ok`]
     if (execution.timeouts > 0) parts.push(`${execution.timeouts} timeout`)

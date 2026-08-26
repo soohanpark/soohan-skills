@@ -5,7 +5,7 @@ export default defineConfig({
     globals: true,
     coverage: {
       provider: 'v8',
-      include: ['scripts/**/*.ts', 'plugins/skill-eval/skills/score/scripts/**/*.ts'],
+      include: ['scripts/**/*.ts', 'plugins/skill-lab/skills/score/scripts/**/*.ts'],
       exclude: ['scripts/**/*.test.ts'],
       thresholds: {
         lines: 80,

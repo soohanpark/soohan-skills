@@ -14,7 +14,7 @@ SKILL.md is an open standard, so **one source, two channels — no per-runtime f
 | Codex / Gemini / Kimi CLI | `./install.sh` — copies `plugins/*/skills/*/` into `~/.codex/skills/` etc. |
 | Anything else with a skills dir | `./install.sh --target <dir>` (e.g. `~/.agents/skills`, auto-detected too) |
 
-`install.sh` names the installed directory after the **plugin** (`~/.codex/skills/blin-mr`), or `<plugin>-<skill>` when a plugin ships more than one skill, and rewrites the frontmatter `name:` to match — the standard requires `name` == directory name, while sources deliberately use short inner names (see "Naming gotchas"). Slash commands (`commands/*.md`) are Claude-only and are **not** installed; other CLIs fire the skill off its `description`, so keep trigger phrases there strong enough to work without a command.
+`install.sh` names the installed directory after the **plugin** (`~/.codex/skills/work`), or `<plugin>-<skill>` when a plugin ships more than one skill, and rewrites the frontmatter `name:` to match — the standard requires `name` == directory name, while sources deliberately use short inner names (see "Naming gotchas"). Slash commands (`commands/*.md`) are Claude-only and are **not** installed; other CLIs fire the skill off its `description`, so keep trigger phrases there strong enough to work without a command.
 
 **Never create a per-runtime copy of a SKILL.md.** The moment a second copy exists the two drift.
 
@@ -31,7 +31,7 @@ Because the same file is read by every host, skill bodies must not hard-code Cla
 | "Invoked via the Skill tool as `x:y`" | drop it — each host advertises skills its own way |
 | `pbcopy` | the clipboard command chain (`pbcopy` → `wl-copy` → `xclip` → `clip.exe`) |
 
-Naming Claude explicitly is fine when it's one host among several ("in Claude Code the full id is `/dry-skill:run`").
+Naming Claude explicitly is fine when it's one host among several ("in Claude Code the full id is `/skill-lab:explain`").
 
 ## Quick commands
 
@@ -79,12 +79,12 @@ plugins/<plugin-name>/
 
 **Naming gotchas — avoid plugin name = inner element name:**
 
-Claude Code namespaces skills as `<plugin>:<skill>` and commands as `<plugin>:<command>`. If the inner names match the plugin name, the listing reads e.g. `dry-skill:dry-skill` — ugly. **Use distinct inner names.** Convention in this repo: short verb names like `run`, `diff`, `trace`, `explain`. Example:
+Claude Code namespaces skills as `<plugin>:<skill>` and commands as `<plugin>:<command>`. If the inner names match the plugin name, the listing reads e.g. `skill-lab:skill-lab` — ugly. **Use distinct inner names.** Convention in this repo: short verb names like `run`, `diff`, `trace`, `explain`. Example:
 
-- ❌ `plugins/dry-skill/skills/SKILL.md` with `name: dry-skill` → listed as `dry-skill:dry-skill`
-- ✅ `plugins/dry-skill/skills/run/SKILL.md` with `name: run` → listed as `dry-skill:run`
+- ❌ `plugins/skill-lab/skills/SKILL.md` with `name: skill-lab` → listed as `skill-lab:skill-lab`
+- ✅ `plugins/skill-lab/skills/explain/SKILL.md` with `name: explain` → listed as `skill-lab:explain`
 
-The same applies to `commands/`: prefer `commands/run.md` (listed as `dry-skill:run`, invoked as `/run` or `/dry-skill:run`) over `commands/dry-skill.md`.
+The same applies to `commands/`: prefer `commands/explain.md` (listed as `skill-lab:explain`, invoked as `/explain` or `/skill-lab:explain`) over `commands/skill-lab.md`.
 
 ## Generated files — do not hand-edit
 

@@ -125,7 +125,7 @@ export const recordAll = async (args: {
   buildArgsFn?: (v: Variant, skill: SkillRef, prompt: string, opts?: BuildOptions) => string[]
   parse?: (raw: string, opts: { skillId: string; skillDir: string }) => ParsedRun
 }): Promise<{ written: number; skipped: number; errorRate: number }> => {
-  // skill-eval 을 forced 로 돌리면 그 안에서 다시 러너를 부른다. 한 단계에서 끊는다 (설계 §9)
+  // skill-lab:score 를 forced 로 돌리면 그 안에서 다시 러너를 부른다. 한 단계에서 끊는다 (설계 §9)
   const depth = Number(process.env.SKILL_EVAL_DEPTH ?? '0')
   if (depth > 0) {
     throw new Error(`SKILL_EVAL_DEPTH=${depth} — 중첩 실행을 차단했습니다. 도그푸딩 재귀입니다.`)
