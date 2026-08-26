@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { buildCodexArgs } from '../../plugins/skill-eval/skills/score/scripts/runtimes/codex'
-import { parseCodexStream } from '../../plugins/skill-eval/skills/score/scripts/parse'
-import { execFailureReason } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
+import { buildCodexArgs } from '../../plugins/skill-lab/skills/score/scripts/runtimes/codex'
+import { parseCodexStream } from '../../plugins/skill-lab/skills/score/scripts/parse'
+import { execFailureReason } from '../../plugins/skill-lab/skills/score/scripts/runtimes/claude'
 
 // dir 은 paths.ts#resolveSkill 규약대로 SKILL.md 를 담은 디렉터리(내부 스킬명으로 끝남).
 const skill = { id: 'blin-mr:write', dir: '/tmp/plugins/blin-mr/skills/write' }

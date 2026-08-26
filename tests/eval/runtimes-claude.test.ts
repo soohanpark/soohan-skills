@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest'
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { buildArgs, buildForcedPrompt, buildTextOnlyArgs, execFailureReason, isolationLevel, makeExec } from '../../plugins/skill-eval/skills/score/scripts/runtimes/claude'
+import { buildArgs, buildForcedPrompt, buildTextOnlyArgs, execFailureReason, isolationLevel, makeExec } from '../../plugins/skill-lab/skills/score/scripts/runtimes/claude'
 
 const skill = { id: 'demo:write', dir: '/tmp/plugins/demo/skills/write' }
 

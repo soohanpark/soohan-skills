@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { installedSkillDir, pluginShipsHooks, resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-eval/skills/score/scripts/paths'
+import { installedSkillDir, pluginShipsHooks, resolveEvalHome, resolveSkill, skillMdExists, slug, runDirName } from '../../plugins/skill-lab/skills/score/scripts/paths'
 
 // 훅을 가진 플러그인의 트리거 축은 description 단독이 아니라 "플러그인 전체(훅 포함) 발동률"
 // 이다 — 실측(2026-07-30, superpowers)에서 자체 SessionStart 훅이 발동률에 관여했다. 리포트가
@@ -77,7 +77,7 @@ describe('resolveSkill · pluginRoot', () => {
     expect(r.pluginRoot).toBe(installPath)
   })
 })
-import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-eval/skills/score/scripts/commands/record'
+import { formatRecordSummary, buildRecordPlan, isQualityCase } from '../../plugins/skill-lab/skills/score/scripts/commands/record'
 
 describe('resolveEvalHome', () => {
   let root: string

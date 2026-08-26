@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { formatDiff, formatDuration, formatReport, formatTokenCount, pct, verdict } from '../../plugins/skill-eval/skills/score/scripts/report'
-import type { TriggerScore } from '../../plugins/skill-eval/skills/score/scripts/score'
-import type { PairwiseScore } from '../../plugins/skill-eval/skills/score/scripts/judge'
-import type { RunMeta } from '../../plugins/skill-eval/skills/score/scripts/record'
+import { formatDiff, formatDuration, formatReport, formatTokenCount, pct, verdict } from '../../plugins/skill-lab/skills/score/scripts/report'
+import type { TriggerScore } from '../../plugins/skill-lab/skills/score/scripts/score'
+import type { PairwiseScore } from '../../plugins/skill-lab/skills/score/scripts/judge'
+import type { RunMeta } from '../../plugins/skill-lab/skills/score/scripts/record'
 
 const score: TriggerScore = {
   train: { positive: { hit: 18, total: 20 }, negative: { falseHit: 0, total: 15 }, unstable: ['x'], undecided: [], notRun: [], nError: 0 },

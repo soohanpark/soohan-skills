@@ -1,0 +1,6 @@
+{"id":"p1","prompt":"brainstorming 스킬이 어떻게 동작하는지 설명해줘","expect":"trigger","split":"test","source":"hand"}
+{"id":"p2","prompt":"이 스킬 실행하지 말고 흐름만 다이어그램으로 보여줘","expect":"trigger","split":"test","source":"hand"}
+{"id":"p3","prompt":"저 스킬이 어떤 순서로 뭘 하는지 단계별로 그려줘","expect":"trigger","split":"train","source":"hand"}
+{"id":"n1","prompt":"이 저장소 테스트 전부 실행해줘","expect":"no-trigger","split":"test","source":"hand"}
+{"id":"n2","prompt":"git status 확인해줘","expect":"no-trigger","split":"test","source":"hand"}
+{"id":"n3","prompt":"MR 본문 작성해줘","expect":"no-trigger","split":"train","source":"hand"}

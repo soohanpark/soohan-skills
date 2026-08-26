@@ -45,7 +45,7 @@ for plugin_dir in "$SRC_DIR"/plugins/*/; do
   plugin="$(basename "$plugin_dir")"
   [ -d "$plugin_dir/skills" ] || continue
 
-  # Install name is the plugin name — users remember "blin-mr", not "write".
+  # Install name is the plugin name — users remember "work", not "write-mr".
   # Only plugins shipping more than one skill fall back to <plugin>-<skill>,
   # otherwise the second skill would silently clobber the first.
   skill_count="$(find "$plugin_dir/skills" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d '[:space:]')"
@@ -61,7 +61,7 @@ for plugin_dir in "$SRC_DIR"/plugins/*/; do
       rm -rf "${target:?}/$name"
       cp -R "$skill_dir" "$target/$name"
       # The open standard wants frontmatter name == directory name. Sources use
-      # short inner names (write/run) so Claude lists them as <plugin>:<skill>,
+      # short inner names (write-mr/score) so Claude lists them as <plugin>:<skill>,
       # so rewrite the first name: line to match the installed directory.
       awk -v n="$name" '!seen && sub(/^name: .*/, "name: " n) { seen = 1 } 1' \
         "$skill_dir/SKILL.md" > "$target/$name/SKILL.md"

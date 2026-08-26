@@ -1,0 +1,16 @@
+{
+  "name": "work",
+  "version": "0.1.0",
+  "description": "업무에서 반복되는 작업을 자동화하는 스킬 모음. 팀에서 정해진 형식과 절차를 따라야 하는 작업을 처리한다.",
+  "author": {
+    "name": "soohanpark"
+  },
+  "category": "workflow",
+  "tags": [
+    "workflow",
+    "automation",
+    "productivity",
+    "team-convention",
+    "git-workflow"
+  ]
+}

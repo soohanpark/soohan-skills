@@ -1,9 +1,9 @@
 import { describe, it, expect, afterEach } from 'vitest'
 import {
   classify, extractPrompts, fallbackKeywords, keywordsFromDescription, mapLimit, mineConcurrency, toDraftCases
-} from '../../plugins/skill-eval/skills/score/scripts/mine'
-import { buildAugmentPrompt, parseVariants, attachVariants } from '../../plugins/skill-eval/skills/score/scripts/mine'
-import type { EvalCase } from '../../plugins/skill-eval/skills/score/scripts/cases'
+} from '../../plugins/skill-lab/skills/score/scripts/mine'
+import { buildAugmentPrompt, parseVariants, attachVariants } from '../../plugins/skill-lab/skills/score/scripts/mine'
+import type { EvalCase } from '../../plugins/skill-lab/skills/score/scripts/cases'
 
 const session = [
   '{"type":"user","message":{"role":"user","content":"블인팀 MR 내용 작성해줘"}}',

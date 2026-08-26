@@ -5,39 +5,47 @@
   },
   "plugins": [
     {
-      "name": "blin-mr",
-      "source": "./plugins/blin-mr",
-      "description": "블인팀 MR 본문을 현재 브랜치 변경사항으로 작성해 클립보드에 복사",
-      "version": "0.2.0",
+      "name": "document",
+      "source": "./plugins/document",
+      "description": "문서를 다루는 스킬 모음 — 글·보고서·소개글·기술 문서·회의록처럼 사람이 읽는 문서를 쓰고, 고치고, 교정하고, 검토하고, 요약하고, 다른 형식으로 옮긴다",
+      "version": "0.1.0",
+      "category": "documents",
+      "tags": [
+        "document",
+        "writing",
+        "editing",
+        "proofreading",
+        "review",
+        "summarization",
+        "documentation"
+      ]
+    },
+    {
+      "name": "skill-lab",
+      "source": "./plugins/skill-lab",
+      "description": "스킬을 개발하고 검증하는 데 쓰는 도구 모음. 스킬의 동작 방식을 파악하고 품질을 측정한다.",
+      "version": "0.1.0",
+      "category": "meta",
+      "tags": [
+        "skill-development",
+        "introspection",
+        "evaluation",
+        "quality",
+        "meta"
+      ]
+    },
+    {
+      "name": "work",
+      "source": "./plugins/work",
+      "description": "업무에서 반복되는 작업을 자동화하는 스킬 모음. 팀에서 정해진 형식과 절차를 따라야 하는 작업을 처리한다.",
+      "version": "0.1.0",
       "category": "workflow",
       "tags": [
-        "mr",
-        "gitlab",
+        "workflow",
+        "automation",
+        "productivity",
+        "team-convention",
         "git-workflow"
-      ]
-    },
-    {
-      "name": "dry-skill",
-      "source": "./plugins/dry-skill",
-      "description": "Dry-run any skill with a flow diagram and simulated result",
-      "version": "0.2.0",
-      "category": "meta",
-      "tags": [
-        "dry-run",
-        "preview",
-        "skill-introspection"
-      ]
-    },
-    {
-      "name": "skill-eval",
-      "source": "./plugins/skill-eval",
-      "description": "스킬의 트리거 정확도와 품질 델타를 실제 실행으로 측정하는 평가 하네스",
-      "version": "0.4.0",
-      "category": "meta",
-      "tags": [
-        "eval",
-        "testing",
-        "quality"
       ]
     }
   ]

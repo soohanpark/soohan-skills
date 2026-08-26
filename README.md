@@ -36,9 +36,9 @@ curl -fsSL https://raw.githubusercontent.com/soohanpark/soohan-skills/main/insta
 
 Auto-detects `~/.codex` `~/.gemini` `~/.kimi` `~/.agents` and copies every skill into each one's `skills/` directory. Cloned the repo already? Just `./install.sh`. Other locations: `./install.sh --target <skills-dir>` (repeatable).
 
-Skills land under the plugin's name (`~/.codex/skills/blin-mr`) and fire off their `description` — there is nothing to configure. Re-run the same command to update; it is idempotent.
+Skills land under the plugin's name (`~/.codex/skills/work`), or `<plugin>-<skill>` when a plugin ships several (`~/.codex/skills/skill-lab-explain`), and fire off their `description` — there is nothing to configure. Re-run the same command to update; it is idempotent.
 
-Slash commands are Claude-only and are not installed. Ask for the skill by name or intent instead of typing `/blin-mr`.
+Slash commands are Claude-only and are not installed. Ask for the skill by name or intent instead of typing `/write-mr`.
 
 ## Add a new plugin (maintainer)
 
@@ -82,5 +82,6 @@ scripts/{schema,sync,validate}.ts        sync engine
 
 See `plugins/<name>/README.md` for each plugin's docs.
 
-- [`blin-mr`](plugins/blin-mr/README.md) — write a 블인팀 MR body from the current branch
-- [`dry-skill`](plugins/dry-skill/README.md) — dry-run any skill with a flow diagram
+- [`work`](plugins/work/README.md) — 업무 스킬 (`write-mr`: write a 블인팀 MR body from the current branch)
+- [`skill-lab`](plugins/skill-lab/README.md) — skills about skills (`explain`: diagram how a skill works, `score`: measure trigger accuracy and quality delta)
+- [`document`](plugins/document/README.md) — skills for documents people read: write, revise, proofread, review, summarize, and convert them (currently `writing-post`: blog posts and project write-ups)
