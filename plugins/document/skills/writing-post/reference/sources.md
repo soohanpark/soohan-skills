@@ -68,3 +68,8 @@
 - Berger & Milkman [What Makes Online Content Viral?](https://journals.sagepub.com/doi/10.1509/jmr.10.0353)
   — 각성도가 높은 감정이 확산을 만든다. 기본값에서 쓰지 않기로 한 레버
 - [Refactoring English — 2025년 Hacker News 최다 블로거](https://refactoringenglish.com/blog/2025-hn-top-5/)
+
+## 전체 해부 노트
+
+- [🤖🔎 글의 해부학 — 오래 읽히는 글 9편의 구조를 뜯어서 얻은 글쓰기 절차](https://soohan.dev/notes/hanibot/research/writing-research/anatomy-of-good-writing)
+  — 표본 선정 기준, 첫 문장 원문 비교, 갈리는 지점의 판정까지 이 절차의 근거 전문
