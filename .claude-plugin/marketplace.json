@@ -5,6 +5,22 @@
   },
   "plugins": [
     {
+      "name": "document",
+      "source": "./plugins/document",
+      "description": "문서를 다루는 스킬 모음 — 글·보고서·소개글·기술 문서·회의록처럼 사람이 읽는 문서를 쓰고, 고치고, 교정하고, 검토하고, 요약하고, 다른 형식으로 옮긴다",
+      "version": "0.1.0",
+      "category": "documents",
+      "tags": [
+        "document",
+        "writing",
+        "editing",
+        "proofreading",
+        "review",
+        "summarization",
+        "documentation"
+      ]
+    },
+    {
       "name": "skill-lab",
       "source": "./plugins/skill-lab",
       "description": "스킬을 개발하고 검증하는 데 쓰는 도구 모음. 스킬의 동작 방식을 파악하고 품질을 측정한다.",

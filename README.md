@@ -84,4 +84,4 @@ See `plugins/<name>/README.md` for each plugin's docs.
 
 - [`work`](plugins/work/README.md) — 업무 스킬 (`write-mr`: write a 블인팀 MR body from the current branch)
 - [`skill-lab`](plugins/skill-lab/README.md) — skills about skills (`explain`: diagram how a skill works, `score`: measure trigger accuracy and quality delta)
-- [`document`](plugins/document/README.md) — write or polish a blog post through a five-step procedure (ABT → skeleton → draft → three revision passes → title/summary)
+- [`document`](plugins/document/README.md) — skills for documents people read: write, revise, proofread, review, summarize, and convert them (currently `writing-post`: blog posts and project write-ups)
