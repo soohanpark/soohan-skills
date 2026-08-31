@@ -1,6 +1,6 @@
 ---
 name: writing-post
-description: Use when the user asks to write, rewrite, or polish a blog post, essay, or project write-up — e.g. "글 써줘", "소개글 써줘", "포스트 작성해줘", "재작성해줘", "다듬어줘", "퇴고해줘", "문장 고쳐줘" — or is editing a post file (mdx/md) under a content directory. Not for READMEs, API docs, commit messages, or emails. Runs a five-step procedure (gather material and find the ABT → skeleton → draft end to end → three revision passes → title and summary, then save) with a completion criterion per step; a polish-only request runs just the revision passes. Facts come from verifiable records, reasons and feelings only from the author, and an unknown reason becomes a question instead of prose.
+description: Use when the user asks to write, rewrite, or polish a blog post, essay, or project write-up — e.g. "글 써줘", "소개글 써줘", "포스트 작성해줘", "재작성해줘", "다듬어줘", "퇴고해줘", "문장 고쳐줘" — or is editing a post file (mdx/md) under a content directory. Not for READMEs, API docs, commit messages, or emails. Runs a five-step procedure (gather material and find the ABT → skeleton → draft end to end → three revision passes → title and summary, then save) with a completion criterion per step; a polish-only request runs just the revision passes. Handles two shapes — argument posts whose subheads carry the argument, and project write-ups that may use reference sections (overview, features, stack, architecture) so long as one section carries a judgment. Facts come from verifiable records, reasons and feelings only from the author, and an unknown reason becomes a question instead of prose.
 ---
 
 # document:writing-post
@@ -48,6 +48,25 @@ description: Use when the user asks to write, rewrite, or polish a blog post, es
 자료에 없는 이유는 그럴듯하게 채우지 않고 사용자에게 묻는다. 확인된 사실을 겪은 일의 말투로
 쓰는 것은 괜찮다. 없던 사건·이유·감정을 만드는 것이 문제다.
 
+## 글의 형태를 먼저 고른다
+
+같은 절차로 두 형태를 만든다. 무엇을 쓰는지가 아니라 **독자가 이 글을 어떻게 읽을지**로
+고른다.
+
+| | 논증글 | 소개글 |
+| --- | --- | --- |
+| 독자가 읽는 법 | 처음부터 끝까지 | 훑다가 필요한 절만 |
+| 다루는 것 | 무엇이 틀렸고 무엇을 배웠는지 | 프로젝트·도구·제품이 무엇이고 어떤 판단으로 만들어졌는지 |
+| 소제목 | 전부 판단·사건. 순서대로 읽으면 ABT가 따라온다 | `개요`·`주요 기능`·`기술 스택`·`아키텍처` 같은 라벨을 써도 된다 |
+| 기능 목록·구조도·사양 표 | 없다. 이야기에 필요한 만큼만 문장으로 | 절 하나씩 줘도 된다 |
+| ABT가 서는 자리 | 도입 다음 nut graf | 마지막 절. 앞의 라벨 절들은 그 판단을 이해할 재료다 |
+
+소개글이라고 저장소를 옮겨 적는 데서 끝내면 안 된다. **무슨 판단을 왜 했는지, 무엇을 안
+만들기로 했는지, 지금 그걸 어떻게 보는지가 최소한 한 자리는 있어야 한다.** README에 없는 건
+그것뿐이고, 없으면 README를 다시 쓴 글이다.
+
+프로젝트에 형태를 정한 규격이 있으면 그것이 우선한다.
+
 ## 절차
 
 각 단계의 완료 조건을 채우기 전에는 다음 단계로 가지 않는다.
@@ -57,10 +76,17 @@ description: Use when the user asks to write, rewrite, or polish a blog post, es
 **자료를 읽는다.** 프로젝트 글이면 README·커밋 이력·코드·배포 상태·이슈를, 경험 글이면
 사용자가 준 메모·사진·기록을 읽는다. 재작성이면 원문도 자료다.
 
+**이야기는 README와 코드 밖에 있다.** 무엇을 만들었는지는 README가 이미 정확하게 적어뒀다.
+안 만들기로 한 것, 중간에 뒤집은 판단, 계획대로 안 된 것은 다른 데 남는다 — 설계 문서의
+비목표 절과 취소선 문단, 커밋 메시지의 제목이 아니라 본문, 닫힌 이슈와 PR 토론, 릴리스 노트,
+"하지 말 것"류의 내부 문서. 여기를 안 뒤지면 글이 README 재작성이 된다.
+
 **상황과 이야기를 구분한다.** 무엇을 만들었고 순서대로 무엇을 했는지는 상황(situation)이다.
 독자가 가져가는 것은 이야기(story) — 그 과정에서 내린 판단과 이유, 그래서 달라진 생각이다.
-상황은 이야기를 이해하는 데 필요한 만큼만 남긴다. 개발 연대기·기능 목록·아키텍처 해설은
-상황이다.
+기능 목록·구조도·개발 연대기는 상황이다.
+
+상황을 버리라는 뜻은 아니다. 소개글에서는 상황이 절 하나씩 가져도 된다. 다만 상황이 전부이면
+README가 된다. 이야기가 어느 자리에 들어갈지를 자료를 읽는 동안 같이 찾는다.
 
 **막혔던 지점을 찾는다.** "X에 대해 쓴다"는 막막하지만 "X에서 막혔던 것"은 범위가 저절로
 좁혀진다. 막힌 기억이 생생할 때가 쓸 때다. 시간이 지나면 배운 것을 재구성하게 되고, 재구성된
@@ -69,6 +95,10 @@ description: Use when the user asks to write, rewrite, or polish a blog post, es
 **자료가 답하지 못하는 것만 묻는다.** 왜 그렇게 했는지, 무엇이 예상과 달랐는지, 그때로
 돌아가면 무엇을 먼저 알고 싶은지. 한 번에, 세 개 이하로 묻는다. 자료에서 답이 나오는 것은
 묻지 않는다.
+
+**"지금도 쓰고 있나요, 안 쓴다면 왜요"는 거의 항상 묻는다.** 저장소는 만들어진 과정만 알고 그
+뒤는 모른다. 안 쓰게 된 이유가 있으면 대개 그게 그 글에서 제일 정직한 대목이고, 마지막 절이
+거기서 나온다.
 
 **ABT 한 줄을 쓴다.**
 
@@ -88,8 +118,11 @@ description: Use when the user asks to write, rewrite, or polish a blog post, es
 ### 2. 뼈대를 세운다
 
 **소제목이 논증을 옮긴다.** 독자는 읽지 않고 훑는다. 소제목만 순서대로 읽어도 ABT가 따라와야
-한다. 소제목은 그 절의 구체적인 판단이나 변화를 말한다. `개요`, `구현`, `기술 스택`처럼 어느
+한다. 소제목은 그 절의 구체적인 판단이나 변화를 말하고, `개요`·`구현`·`기술 스택`처럼 어느
 글에나 붙는 라벨은 논증을 옮기지 못한다.
+
+소개글은 예외다. 라벨 절을 써도 되지만 그 대신 **판단이 든 절이 라벨 절 사이에 최소 하나는
+있어야 한다.** 안 만들기로 한 것에 절 하나를 주면 대개 통한다.
 
 **여는 방식을 고른다.** 독자는 도착하자마자 둘을 묻는다 — 이 글이 나를 위한 것인가, 읽으면
 뭐가 남는가. 답할 예산은 제목과 첫 세 문장이다. 표본으로 뜯어본 글들은 전부 아래 중 하나로
@@ -105,7 +138,8 @@ description: Use when the user asks to write, rewrite, or polish a blog post, es
 | 명제 | 결론을 첫 문장에 놓고 나머지를 증명에 쓴다 |
 
 **nut graf 자리를 정한다.** ABT를 문단 하나로 푼 것이 nut graf이고, 도입 바로 다음인 두세
-번째 문단에 놓는다. 여기까지만 읽고 나가는 독자도 요지는 가져간다.
+번째 문단에 놓는다. 여기까지만 읽고 나가는 독자도 요지는 가져간다. 소개글은 결론이 뒤에
+오므로 nut graf를 앞에 두는 대신 summary가 그 일을 한다.
 
 **끝의 유형을 정한다.** 마지막 문단은 kicker다 — 리드가 독자를 글 안으로 밀어 넣는다면
 kicker는 글을 독자 안으로 밀어 넣는다. 셋 중 하나를 고른다.
@@ -113,13 +147,15 @@ kicker는 글을 독자 안으로 밀어 넣는다. 셋 중 하나를 고른다.
 - 낮추기 — 최종 권위를 주장하지 않고 대화의 일부로 위치시킨다
 - 행동 — 긴 논증 뒤에 오는 짧은 명령이 앞의 모든 문단을 한 점으로 모은다
 - 되돌아와 넘기기 — 도입의 장면으로 돌아왔다가 독자 쪽으로 넘긴다
+- 현재 상태 — 지금도 쓰고 있는지, 안 쓴다면 무엇에 졌는지를 적고 끝낸다. 만든 사람이 자기
+  물건을 안 쓰게 된 이유만큼 정직한 마무리는 드물다
 
 **이미지·코드·표의 자리를 표시한다.** 그것 없이는 안 통하는 장면(화면, 실측, 공간의 흐름)에만
 둔다. 소제목과 이미지만 보고 훑는 독자에게도 요지가 가야 한다. 삽입 절차는 프로젝트 규칙을
 따른다.
 
-**완료 조건** — 소제목 목록이 순서대로 ABT를 말함, 여는 방식과 끝의 유형이 정해짐, nut graf
-위치가 정해짐. 유형은 지금 정하고 문장은 3단계 끝에 쓴다.
+**완료 조건** — 소제목 목록이 순서대로 ABT를 말함(소개글이면 판단이 든 절이 최소 하나), 여는
+방식과 끝의 유형이 정해짐, nut graf 위치가 정해짐. 유형은 지금 정하고 문장은 3단계 끝에 쓴다.
 
 ### 3. 초고를 끝까지 쓴다
 
@@ -133,8 +169,9 @@ kicker는 글을 독자 안으로 밀어 넣는다. 셋 중 하나를 고른다.
 대보라"고 스스로 물으면 습관적인 문장이 걸린다. 복잡한 논점은 사례를 먼저 깔고 원칙을 뒤에
 둔다. 독자가 스스로 공통점을 찾으면 그 원칙은 통보받은 게 아니라 발견한 게 된다.
 
-**숫자는 반대다.** 수치와 실측은 그 숫자가 놀라움이었거나 판단의 근거였을 때만 쓴다. 근거를
-쌓는 것이 목적이 되면 리포트가 된다.
+**숫자는 반대다.** 논증글에서 수치와 실측은 그 숫자가 놀라움이었거나 판단의 근거였을 때만
+쓴다. 근거를 쌓는 것이 목적이 되면 리포트가 된다. 소개글의 사양 표는 예외지만, 판단의 근거였던
+숫자는 값만 적지 말고 왜 그 값이 됐는지를 같이 적는다.
 
 **코드·표·이미지를 둔 뒤에는 무엇을 볼지 한 문장으로 짚는다.** 보여주기만 하고 넘어가면
 독자는 어디를 봐야 하는지 모른다.
@@ -162,7 +199,8 @@ kicker는 글을 독자 안으로 밀어 넣는다. 셋 중 하나를 고른다.
 
 ### 4. 세 번 퇴고한다
 
-**1차 — 구조.** 문단마다 묻는다: 이걸 빼면 내가 겪은 일이 안 통하는가? 아니면 뺀다. 같은 말을
+**1차 — 구조.** 문단마다 묻는다: 이걸 빼면 내가 겪은 일이 안 통하는가? 아니면 뺀다. 소개글의
+라벨 절에는 이 질문을 대지 않는다 — 대신 판단이 든 절이 살아 있는지만 본다. 같은 말을
 두 번 한 문단을 찾는다 — 특히 글 끝에서 잘 생긴다. 사과와 정밀도를 구분한다. "~하지
 못했다", "~에 가깝다"가 문단마다 반복되면 정밀도가 아니라 방어다. 안 한 것은 안 했다고 한
 번만 적는다. 좋아 보이려고, 귀엽게 보이려고 쓴 문장을 지운다.
