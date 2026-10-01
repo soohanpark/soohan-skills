@@ -21,6 +21,20 @@
       ]
     },
     {
+      "name": "korean-writing",
+      "source": "./plugins/korean-writing",
+      "description": "한국어 문체 지침과 Codex 전역 적용 설정 — 뜻과 어조를 보존하며 번역투·상투구·기계적인 반복을 줄인다",
+      "version": "0.1.0",
+      "category": "documents",
+      "tags": [
+        "korean",
+        "writing",
+        "editing",
+        "style",
+        "setup"
+      ]
+    },
+    {
       "name": "skill-lab",
       "source": "./plugins/skill-lab",
       "description": "스킬을 개발하고 검증하는 데 쓰는 도구 모음. 스킬의 동작 방식을 파악하고 품질을 측정한다.",
