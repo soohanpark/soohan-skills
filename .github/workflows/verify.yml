@@ -36,3 +36,6 @@ jobs:
 
       - name: Test install.sh
         run: bash tests/install.test.sh
+
+      - name: Test Korean writing setup
+        run: pnpm test:korean-writing

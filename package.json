@@ -8,6 +8,7 @@
     "validate": "tsx scripts/validate.ts",
     "eval": "tsx plugins/skill-lab/skills/score/scripts/cli.ts",
     "test": "vitest run",
+    "test:korean-writing": "python3 -B tests/korean-writing-setup.test.py",
     "test:watch": "vitest",
     "prepare": "husky"
   },
