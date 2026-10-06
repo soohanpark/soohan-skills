@@ -1,6 +1,6 @@
 {
   "name": "korean-writing",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "한국어 문체 지침과 Codex 전역 적용 설정 — 뜻과 어조를 보존하며 번역투·상투구·기계적인 반복을 줄인다",
   "author": {
     "name": "soohanpark"
